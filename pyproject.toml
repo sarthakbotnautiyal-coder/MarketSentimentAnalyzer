@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "market-sentiment-analyzer"
+version = "0.1.0"
+description = "Analyze market sentiment using stock indicators, news, and LLM"
+authors = ["Venkat <venkat@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+yfinance = "^0.2.28"
+pandas = "^2.0.0"
+pandas-ta = "^0.3.14b0"
+requests = "^2.31.0"
+ollama = "^0.1.0"
+structlog = "^23.0.0"
+python-dotenv = "^1.0.0"
+tabulate = "^0.9.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+pytest-mock = "^3.10.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
