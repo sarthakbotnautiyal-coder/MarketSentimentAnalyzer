@@ -1,22 +1,25 @@
-"""Sentiment analysis using Ollama LLM."""
+"""Sentiment analysis using Ollama LLM with caching."""
 
-import logging
 from typing import Dict, Any, Optional
+from datetime import datetime, timedelta
 import requests
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class SentimentAnalyzer:
-    """Analyze sentiment of news using Ollama LLM."""
+    """Analyze sentiment of news using Ollama LLM with caching."""
 
     VALID_SENTIMENTS = {"bullish", "bearish", "neutral"}
 
-    def __init__(self, host: str = "http://localhost:11434", model: str = "qwen2.5:7b"):
-        """Initialize with Ollama host and model."""
+    def __init__(self, host: str = "http://localhost:11434", model: str = "qwen2.5:7b", db_manager: Any = None, sentiment_ttl_days: int = 7):
+        """Initialize with Ollama host, model, optional database cache and TTL."""
         self.host = host.rstrip("/")
         self.model = model
         self.generate_url = f"{self.host}/api/generate"
+        self.db = db_manager
+        self.sentiment_ttl_days = sentiment_ttl_days
 
     def analyze(self, text: str) -> Dict[str, Any]:
         """Analyze sentiment of given text."""
@@ -50,10 +53,45 @@ class SentimentAnalyzer:
             logger.error(f"Unexpected error in sentiment analysis: {e}")
             return {"sentiment": "neutral", "confidence": 0.0, "explanation": f"Unexpected error: {e}"}
 
-    def analyze_batch(self, texts: list[str]) -> Dict[str, Any]:
-        """Analyze multiple news items and aggregate sentiment."""
+    def analyze_batch(self, texts: list[str], ticker: str = None, force_refresh: bool = False) -> Dict[str, Any]:
+        """
+        Analyze multiple news items and aggregate sentiment with caching.
+        
+        Args:
+            texts: List of text summaries to analyze
+            ticker: Stock ticker for cache key
+            force_refresh: If True, bypass cache
+            
+        Returns:
+            Aggregated sentiment analysis
+        """
+        if not ticker:
+            ticker = "DEFAULT"  # For caching when no ticker specified
+
+        # Check cache first if database available and not forcing refresh
+        if self.db and not force_refresh:
+            try:
+                if self.db.is_data_fresh('sentiment', ticker, self.sentiment_ttl_days):
+                    cached = self.db.get_cached_sentiment(ticker, self.sentiment_ttl_days)
+                    if cached:
+                        logger.info(f"Using cached sentiment for {ticker} from {cached.get('date')}")
+                        return {
+                            "sentiment": cached['sentiment'],
+                            "confidence": cached['confidence'],
+                            "explanation": cached['explanation']
+                        }
+            except Exception as e:
+                logger.warning(f"Failed to read sentiment cache for {ticker}: {e}")
+
         if not texts:
-            return {"sentiment": "neutral", "confidence": 1.0, "explanation": "No news provided"}
+            result = {"sentiment": "neutral", "confidence": 1.0, "explanation": "No news provided"}
+            if self.db:
+                try:
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    self.db.save_sentiment(ticker, today, result['sentiment'], result['confidence'], result['explanation'])
+                except Exception as e:
+                    logger.error(f"Failed to save sentiment to database for {ticker}: {e}")
+            return result
 
         # Combine texts with separator
         combined = "\n\n---\n\n".join(texts[:5])  # Limit to 5 articles
@@ -86,14 +124,36 @@ What is the overall sentiment? Respond with exactly one word: bullish, bearish, 
             if first_word not in self.VALID_SENTIMENTS:
                 first_word = "neutral"
 
-            return {
+            analysis = {
                 "sentiment": first_word,
                 "confidence": 0.8,  # Default for batch
                 "explanation": generated_text[:200] if len(generated_text) > 200 else generated_text
             }
+
+            # Cache the result
+            if self.db:
+                try:
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    self.db.save_sentiment(
+                        ticker,
+                        today,
+                        analysis['sentiment'],
+                        analysis['confidence'],
+                        analysis['explanation']
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save sentiment to database for {ticker}: {e}")
+
+            return analysis
         except requests.RequestException as e:
             logger.error(f"Error connecting to Ollama: {e}")
-            return {"sentiment": "neutral", "confidence": 0.0, "explanation": f"Connection error: {e}"}
+            fallback = {"sentiment": "neutral", "confidence": 0.0, "explanation": f"Connection error: {e}"}
+            # Don't cache failures
+            return fallback
+        except Exception as e:
+            logger.error(f"Unexpected error in sentiment analysis: {e}")
+            fallback = {"sentiment": "neutral", "confidence": 0.0, "explanation": f"Unexpected error: {e}"}
+            return fallback
 
     def _build_prompt(self, text: str) -> str:
         """Build prompt for single text analysis."""
