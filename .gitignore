@@ -40,3 +40,9 @@ htmlcov/
 # Virtual env
 venv/
 ENV/
+
+# Data
+data/
+*.db
+*.sqlite
+*.sqlite3

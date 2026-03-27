@@ -1,10 +1,10 @@
 """Console display using tabulate."""
 
-import logging
 from typing import Dict, Any, List
 from tabulate import tabulate
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class Display:
