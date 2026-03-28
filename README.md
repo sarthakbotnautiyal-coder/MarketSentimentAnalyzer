@@ -1,12 +1,9 @@
 # MarketSentimentAnalyzer
 
-Analyze market sentiment for stock tickers by combining technical indicators, latest news, and AI-powered sentiment analysis with persistent caching.
 
 ## Features
 
 - **Technical Indicators**: Fetches stock data and calculates RSI, MACD, SMA, and EMA across multiple timeframes
-- **News Integration**: Retrieves latest news using Brave Search API
-- **AI Sentiment**: Uses local Ollama (qwen2.5:7b) to analyze news sentiment
 - **Persistent Caching**: SQLite database stores all data to avoid rate limits and speed up repeated runs
 - **Incremental Updates**: Only fetches new data; backfill 1-year historical for new tickers
 - **Console Tables**: Beautiful formatted output with tabulate
@@ -25,8 +22,6 @@ MarketSentimentAnalyzer/
 │   ├── __init__.py
 │   ├── config.py           # Configuration handling
 │   ├── database.py         # SQLite database manager
-│   ├── fetchers.py         # Stock & news data fetchers with caching
-│   ├── sentiment.py        # LLM sentiment analysis with caching
 │   ├── display.py          # Console output formatting
 │   └── main.py             # Application entry point
 ├── tests/
@@ -34,7 +29,6 @@ MarketSentimentAnalyzer/
 │   ├── test_config.py
 │   ├── test_database.py   # Database operations tests
 │   ├── test_fetchers.py   # Fetcher caching tests
-│   ├── test_sentiment.py  # Sentiment caching tests
 │   ├── test_display.py
 │   └── test_main.py       # Integration tests
 ├── data/                   # (Created on first run)
@@ -92,8 +86,6 @@ pip install -r requirements.txt
    ```yaml
    path: data/market_data.db
    stock_ttl: '1d'      # Stock data considered fresh for 1 day
-   news_ttl: '7d'       # News cache lifetime
-   sentiment_ttl: '7d'  # Sentiment cache lifetime (prevents Ollama spam)
    ```
 
 ## Running
@@ -135,8 +127,6 @@ python3 -m src.main --backfill 1y --force-refresh
 ### How Caching Works
 
 - **Stock Data**: Cached in `stock_daily` table with date+ticker primary key. Daily runs will only fetch fresh data if the latest cached date is older than `stock_ttl` (default 1 day).
-- **News**: Cached in `news` table keyed by URL to prevent duplicates. Only stores articles from the last `news_ttl` days (default 7).
-- **Sentiment**: Cached in `sentiment` table per ticker with TTL of `sentiment_ttl` days (default 7). This prevents excessive LLM calls to Ollama for the same ticker within a week.
 
 On API failures, the tool falls back to the latest cached data (if available) and logs a warning.
 
@@ -153,7 +143,6 @@ The tool prints:
 
 2. **News Articles**: Top 5 latest headlines with summaries
 
-3. **Sentiment Analysis**: LLM-determined sentiment (bullish/bearish/neutral) with confidence and explanation
 
 4. **Summary Table**: Combined view across all tickers
 
@@ -174,9 +163,7 @@ CREATE TABLE stock_daily (
 );
 ```
 
-### news
 ```sql
-CREATE TABLE news (
     date TEXT,
     ticker TEXT,
     title TEXT,
@@ -188,12 +175,9 @@ CREATE TABLE news (
 );
 ```
 
-### sentiment
 ```sql
-CREATE TABLE sentiment (
     date TEXT,
     ticker TEXT,
-    sentiment TEXT,    -- "bullish", "bearish", or "neutral"
     confidence REAL,
     explanation TEXT,
     PRIMARY KEY (date, ticker)
@@ -223,7 +207,6 @@ Database tests use a temporary SQLite database.
 
 - **No trading**: This tool is for analysis only, not for executing trades
 - **Rate limits**: Respect Brave Search API rate limits (free tier: 2,000 queries/month)
-- **Local model**: Ollama runs locally; no data sent to cloud for sentiment analysis
 - **API key security**: Never commit `.env` file; use `.env.example` as template
 - **Database**: SQLite file (`data/market_data.db`) is ignored by git; local cache only
 
@@ -235,7 +218,6 @@ Database tests use a temporary SQLite database.
 ## Architecture
 
 1. **Config**: Loads tickers, environment settings, and database configuration
-2. **DatabaseManager**: Handles SQLite operations for caching stock data, news, and sentiment
 3. **Fetchers**:
    - `StockDataFetcher`: Uses yfinance + pandas_ta; caches in database; supports backfill and incremental updates
    - `NewsFetcher`: Brave Search API with deduplication and TTL caching
@@ -249,8 +231,6 @@ Database tests use a temporary SQLite database.
 - Email reports
 - Web dashboard with Flask/FastAPI
 - Additional indicators (Bollinger Bands, ATR, etc.)
-- Multiple news sources
-- Historical sentiment tracking with charts
 - Discord/Telegram/Slack notifications
 - Webhook triggers for significant changes
 
