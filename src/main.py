@@ -14,8 +14,7 @@ from structlog.dev import ConsoleRenderer
 
 from src.config import Config, DatabaseConfig
 from src.database import DatabaseManager
-from src.fetchers import StockDataFetcher, NewsFetcher
-from src.sentiment import SentimentAnalyzer
+from src.fetchers import StockDataFetcher
 from src.display import Display
 
 
@@ -111,18 +110,6 @@ class MarketSentimentAnalyzer:
             interval="1d",
             db_manager=self.db
         )
-        self.news_fetcher = NewsFetcher(
-            config.brave_api_key,
-            config.news_count,
-            db_manager=self.db,
-            news_ttl_days=config.database.news_ttl_days
-        )
-        self.sentiment_analyzer = SentimentAnalyzer(
-            config.ollama_host,
-            config.ollama_model,
-            db_manager=self.db,
-            sentiment_ttl_days=config.database.sentiment_ttl_days
-        )
         self.display = Display()
         self.results = {}
 
@@ -158,24 +145,9 @@ class MarketSentimentAnalyzer:
                         self.results[ticker] = {"error": indicators["error"]}
                         continue
 
-                # Fetch news (with caching)
-                query = f"{ticker} stock news today"
-                articles = self.news_fetcher.fetch_news(
-                    query,
-                    ticker=ticker,
-                    force_refresh=self.force_refresh
-                )
-
-                # Analyze sentiment (with caching)
-                if articles:
-                    summaries = [a['snippet'] for a in articles if a.get('snippet')]
-                    sentiment = self.sentiment_analyzer.analyze_batch(
-                        summaries,
-                        ticker=ticker,
-                        force_refresh=self.force_refresh
-                    )
-                else:
-                    sentiment = {"sentiment": "neutral", "confidence": 0.0, "explanation": "No news available"}
+                # Stock-only mode: no news or sentiment
+                articles = []
+                sentiment = {"sentiment": "neutral", "confidence": 0.0, "explanation": "Not available"}
 
                 # Store results
                 self.results[ticker] = {

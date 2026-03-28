@@ -26,7 +26,7 @@ class DatabaseManager:
         """Create database tables if they don't exist."""
         cursor = self.conn.cursor()
 
-        # Stock daily data table
+        # Stock daily data table (simplified: only price/volume)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS stock_daily (
                 date TEXT,
@@ -36,44 +36,13 @@ class DatabaseManager:
                 low REAL,
                 close REAL,
                 volume INTEGER,
-                indicators TEXT,
                 PRIMARY KEY (date, ticker)
             )
         ''')
 
-        # News table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS news (
-                date TEXT,
-                ticker TEXT,
-                title TEXT,
-                url TEXT,
-                snippet TEXT,
-                source TEXT,
-                published TEXT,
-                PRIMARY KEY (url, ticker)
-            )
-        ''')
-
-        # Sentiment table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sentiment (
-                date TEXT,
-                ticker TEXT,
-                sentiment TEXT,
-                confidence REAL,
-                explanation TEXT,
-                PRIMARY KEY (date, ticker)
-            )
-        ''')
-
-        # Indexes for performance
+        # Indexes for stock_daily
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_ticker ON stock_daily(ticker)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_date ON stock_daily(date)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_news_ticker ON news(ticker)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_news_date ON news(date)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sentiment_ticker ON sentiment(ticker)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sentiment_date ON sentiment(date)')
 
         self.conn.commit()
 
@@ -88,22 +57,17 @@ class DatabaseManager:
         self.close()
 
     # Stock data methods
-    def save_stock_data(self, ticker: str, df: pd.DataFrame, indicators_dict: Dict[str, Any] = None):
+    def save_stock_data(self, ticker: str, df: pd.DataFrame):
         """Save stock DataFrame to database."""
         cursor = self.conn.cursor()
 
         for idx, row in df.iterrows():
             date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
 
-            # Get indicators for this date if provided
-            indicators = None
-            if indicators_dict and date_str in indicators_dict:
-                indicators = json.dumps(indicators_dict[date_str])
-
             cursor.execute('''
                 INSERT OR REPLACE INTO stock_daily
-                (date, ticker, open, high, low, close, volume, indicators)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (date, ticker, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 date_str,
                 ticker,
@@ -111,8 +75,7 @@ class DatabaseManager:
                 float(row.get('High', 0)) if pd.notna(row.get('High')) else None,
                 float(row.get('Low', 0)) if pd.notna(row.get('Low')) else None,
                 float(row.get('Close', 0)) if pd.notna(row.get('Close')) else None,
-                int(row.get('Volume', 0)) if pd.notna(row.get('Volume')) else None,
-                indicators
+                int(row.get('Volume', 0)) if pd.notna(row.get('Volume')) else None
             ))
 
         self.conn.commit()
@@ -135,7 +98,7 @@ class DatabaseManager:
         Returns a DataFrame with columns matching yfinance format:
         Open, High, Low, Close, Volume with datetime index.
         """
-        query = '''SELECT date, open, high, low, close, volume, indicators 
+        query = '''SELECT date, open, high, low, close, volume 
                    FROM stock_daily WHERE ticker = ?'''
         params = [ticker]
 
@@ -165,8 +128,7 @@ class DatabaseManager:
                 'High': float(row['high']) if row['high'] is not None else None,
                 'Low': float(row['low']) if row['low'] is not None else None,
                 'Close': float(row['close']) if row['close'] is not None else None,
-                'Volume': int(row['volume']) if row['volume'] is not None else None,
-                'indicators': row['indicators']  # Keep indicators JSON as is
+                'Volume': int(row['volume']) if row['volume'] is not None else None
             })
 
         df = pd.DataFrame(data, index=pd.to_datetime(dates))
