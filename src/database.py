@@ -40,9 +40,35 @@ class DatabaseManager:
             )
         ''')
 
+        # Indicators table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS indicators (
+                date TEXT,
+                ticker TEXT,
+                rsi REAL,
+                macd REAL,
+                macd_hist REAL,
+                sma20 REAL,
+                sma50 REAL,
+                sma200 REAL,
+                bb_upper REAL,
+                bb_middle REAL,
+                bb_lower REAL,
+                atr REAL,
+                vol_10d REAL,
+                vol_30d REAL,
+                vol_ratio REAL,
+                high_20d REAL,
+                low_20d REAL,
+                PRIMARY KEY (date, ticker)
+            )
+        ''')
+
         # Indexes for stock_daily
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_ticker ON stock_daily(ticker)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_date ON stock_daily(date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON indicators(ticker)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_date ON indicators(date)')
 
         self.conn.commit()
 
@@ -275,6 +301,47 @@ class DatabaseManager:
             return latest_date >= cutoff
         except (ValueError, TypeError):
             return False
+
+    # Indicators methods
+    def save_indicators(self, ticker: str, date: str, indicators: Dict[str, Any]):
+        """Save or replace indicators row."""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO indicators
+            (date, ticker, rsi, macd, macd_hist, sma20, sma50, sma200,
+             bb_upper, bb_middle, bb_lower, atr,
+             vol_10d, vol_30d, vol_ratio, high_20d, low_20d)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            date,
+            ticker,
+            indicators.get('RSI_14'),
+            indicators.get('MACD'),
+            indicators.get('MACD_Hist'),
+            indicators.get('SMA_20'),
+            indicators.get('SMA_50'),
+            indicators.get('SMA_200'),
+            indicators.get('BB_Upper'),
+            indicators.get('BB_Middle'),
+            indicators.get('BB_Lower'),
+            indicators.get('ATR_14'),
+            indicators.get('Volume_10d_Avg'),
+            indicators.get('Volume_30d_Avg'),
+            indicators.get('Volume_Ratio'),
+            indicators.get('High_20d'),
+            indicators.get('Low_20d')
+        ))
+        self.conn.commit()
+        logger.debug(f"Saved indicators for {ticker} on {date}")
+
+    def get_indicators(self, ticker: str, date: str) -> Optional[Dict[str, Any]]:
+        """Retrieve indicators for a ticker on a given date."""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM indicators WHERE ticker = ? AND date = ?', (ticker, date))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
 
     def clear_old_data(self, days: int = 30):
         """Delete data older than N days to keep database size manageable."""

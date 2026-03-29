@@ -1,0 +1,352 @@
+{"path": "data/market_data.db", "event": "Database initialized", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.174447Z"}
+{"tickers": ["RKLB", "HIMS", "HOOD", "ACHR", "SOFI", "META", "AMZN", "UNH", "SHOP", "PLTR", "TSLA", "SOUN", "MSFT", "GOOGL", "ORCL", "NVDA", "QQQ", "SPY", "AAPL", "AMD", "SERV", "NVTS", "ABTC", "BBAI", "BULL", "JOBY", "GRAB", "NNOX", "OPEN", "F", "AMDL", "STLA", "LAC", "VET"], "backfill": true, "force_refresh": false, "event": "Starting market sentiment analysis", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.174693Z"}
+{"ticker": "RKLB", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.174762Z"}
+{"event": "Backfilling 1 year data for RKLB", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.174804Z"}
+{"event": "Backfilled 251 rows for RKLB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.457199Z"}
+{"event": "Saved 251 stock records for RKLB", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.470449Z"}
+{"event": "Saved backfill data to database for RKLB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.470664Z"}
+{"ticker": "HIMS", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.576371Z"}
+{"event": "Backfilling 1 year data for HIMS", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.576496Z"}
+{"event": "Backfilled 251 rows for HIMS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.635972Z"}
+{"event": "Saved 251 stock records for HIMS", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.641105Z"}
+{"event": "Saved backfill data to database for HIMS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.641170Z"}
+{"ticker": "HOOD", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.643532Z"}
+{"event": "Backfilling 1 year data for HOOD", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.643589Z"}
+{"event": "Backfilled 251 rows for HOOD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.697004Z"}
+{"event": "Saved 251 stock records for HOOD", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.702121Z"}
+{"event": "Saved backfill data to database for HOOD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.702188Z"}
+{"ticker": "ACHR", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.704501Z"}
+{"event": "Backfilling 1 year data for ACHR", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.704560Z"}
+{"event": "Backfilled 251 rows for ACHR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.764604Z"}
+{"event": "Saved 251 stock records for ACHR", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.769866Z"}
+{"event": "Saved backfill data to database for ACHR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.769942Z"}
+{"ticker": "SOFI", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.772323Z"}
+{"event": "Backfilling 1 year data for SOFI", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.772385Z"}
+{"event": "Backfilled 251 rows for SOFI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.830748Z"}
+{"event": "Saved 251 stock records for SOFI", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.841823Z"}
+{"event": "Saved backfill data to database for SOFI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.841932Z"}
+{"ticker": "META", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.844692Z"}
+{"event": "Backfilling 1 year data for META", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.844869Z"}
+{"event": "Backfilled 251 rows for META", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.932861Z"}
+{"event": "Saved 251 stock records for META", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:02.947058Z"}
+{"event": "Saved backfill data to database for META", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:02.947180Z"}
+{"ticker": "AMZN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.950642Z"}
+{"event": "Backfilling 1 year data for AMZN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:02.950731Z"}
+{"event": "Backfilled 251 rows for AMZN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.018318Z"}
+{"event": "Saved 251 stock records for AMZN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.033842Z"}
+{"event": "Saved backfill data to database for AMZN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.034020Z"}
+{"ticker": "UNH", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.039424Z"}
+{"event": "Backfilling 1 year data for UNH", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.039548Z"}
+{"event": "Backfilled 251 rows for UNH", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.148356Z"}
+{"event": "Saved 251 stock records for UNH", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.164632Z"}
+{"event": "Saved backfill data to database for UNH", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.164829Z"}
+{"ticker": "SHOP", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.170868Z"}
+{"event": "Backfilling 1 year data for SHOP", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.170984Z"}
+{"event": "Backfilled 251 rows for SHOP", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.233427Z"}
+{"event": "Saved 251 stock records for SHOP", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.247734Z"}
+{"event": "Saved backfill data to database for SHOP", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.247857Z"}
+{"ticker": "PLTR", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.252610Z"}
+{"event": "Backfilling 1 year data for PLTR", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.252715Z"}
+{"event": "Backfilled 251 rows for PLTR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.316700Z"}
+{"event": "Saved 251 stock records for PLTR", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.332190Z"}
+{"event": "Saved backfill data to database for PLTR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.332331Z"}
+{"ticker": "TSLA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.337321Z"}
+{"event": "Backfilling 1 year data for TSLA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.337429Z"}
+{"event": "Backfilled 251 rows for TSLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.409955Z"}
+{"event": "Saved 251 stock records for TSLA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.424664Z"}
+{"event": "Saved backfill data to database for TSLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.424782Z"}
+{"ticker": "SOUN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.429681Z"}
+{"event": "Backfilling 1 year data for SOUN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.429782Z"}
+{"event": "Backfilled 251 rows for SOUN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.502712Z"}
+{"event": "Saved 251 stock records for SOUN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.516256Z"}
+{"event": "Saved backfill data to database for SOUN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.516437Z"}
+{"ticker": "MSFT", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.520184Z"}
+{"event": "Backfilling 1 year data for MSFT", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.520304Z"}
+{"event": "Backfilled 251 rows for MSFT", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.619305Z"}
+{"event": "Saved 251 stock records for MSFT", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.634543Z"}
+{"event": "Saved backfill data to database for MSFT", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.634702Z"}
+{"ticker": "GOOGL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.640320Z"}
+{"event": "Backfilling 1 year data for GOOGL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.640428Z"}
+{"event": "Backfilled 251 rows for GOOGL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.717940Z"}
+{"event": "Saved 251 stock records for GOOGL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.733124Z"}
+{"event": "Saved backfill data to database for GOOGL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.733239Z"}
+{"ticker": "ORCL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.738047Z"}
+{"event": "Backfilling 1 year data for ORCL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.738145Z"}
+{"event": "Backfilled 251 rows for ORCL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.887209Z"}
+{"event": "Saved 251 stock records for ORCL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:03.903000Z"}
+{"event": "Saved backfill data to database for ORCL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:03.903112Z"}
+{"ticker": "NVDA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.907831Z"}
+{"event": "Backfilling 1 year data for NVDA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:03.907922Z"}
+{"event": "Backfilled 251 rows for NVDA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.055131Z"}
+{"event": "Saved 251 stock records for NVDA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.070640Z"}
+{"event": "Saved backfill data to database for NVDA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.070749Z"}
+{"ticker": "QQQ", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.075468Z"}
+{"event": "Backfilling 1 year data for QQQ", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.075560Z"}
+{"event": "Backfilled 251 rows for QQQ", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.171093Z"}
+{"event": "Saved 251 stock records for QQQ", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.186621Z"}
+{"event": "Saved backfill data to database for QQQ", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.186727Z"}
+{"ticker": "SPY", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.191291Z"}
+{"event": "Backfilling 1 year data for SPY", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.191380Z"}
+{"event": "Backfilled 251 rows for SPY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.307586Z"}
+{"event": "Saved 251 stock records for SPY", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.323272Z"}
+{"event": "Saved backfill data to database for SPY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.323417Z"}
+{"ticker": "AAPL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.328040Z"}
+{"event": "Backfilling 1 year data for AAPL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.328132Z"}
+{"event": "Backfilled 251 rows for AAPL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.442498Z"}
+{"event": "Saved 251 stock records for AAPL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.460733Z"}
+{"event": "Saved backfill data to database for AAPL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.460870Z"}
+{"ticker": "AMD", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.466157Z"}
+{"event": "Backfilling 1 year data for AMD", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.466246Z"}
+{"event": "Backfilled 251 rows for AMD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.535384Z"}
+{"event": "Saved 251 stock records for AMD", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.551445Z"}
+{"event": "Saved backfill data to database for AMD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.551554Z"}
+{"ticker": "SERV", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.556155Z"}
+{"event": "Backfilling 1 year data for SERV", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.556244Z"}
+{"event": "Backfilled 251 rows for SERV", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.687217Z"}
+{"event": "Saved 251 stock records for SERV", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.704494Z"}
+{"event": "Saved backfill data to database for SERV", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.704651Z"}
+{"ticker": "NVTS", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.710389Z"}
+{"event": "Backfilling 1 year data for NVTS", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.710494Z"}
+{"event": "Backfilled 251 rows for NVTS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.835026Z"}
+{"event": "Saved 251 stock records for NVTS", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:04.852287Z"}
+{"event": "Saved backfill data to database for NVTS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.852426Z"}
+{"ticker": "ABTC", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.857796Z"}
+{"event": "Backfilling 1 year data for ABTC", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:04.857893Z"}
+{"event": "Backfilled 251 rows for ABTC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:04.984182Z"}
+{"event": "Saved 251 stock records for ABTC", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.001323Z"}
+{"event": "Saved backfill data to database for ABTC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.001456Z"}
+{"ticker": "BBAI", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.006824Z"}
+{"event": "Backfilling 1 year data for BBAI", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.006921Z"}
+{"event": "Backfilled 251 rows for BBAI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.073692Z"}
+{"event": "Saved 251 stock records for BBAI", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.089453Z"}
+{"event": "Saved backfill data to database for BBAI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.089573Z"}
+{"ticker": "BULL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.094380Z"}
+{"event": "Backfilling 1 year data for BULL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.094472Z"}
+{"event": "Backfilled 251 rows for BULL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.157338Z"}
+{"event": "Saved 251 stock records for BULL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.172603Z"}
+{"event": "Saved backfill data to database for BULL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.172727Z"}
+{"ticker": "JOBY", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.177466Z"}
+{"event": "Backfilling 1 year data for JOBY", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.177561Z"}
+{"event": "Backfilled 251 rows for JOBY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.294650Z"}
+{"event": "Saved 251 stock records for JOBY", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.313352Z"}
+{"event": "Saved backfill data to database for JOBY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.313485Z"}
+{"ticker": "GRAB", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.318976Z"}
+{"event": "Backfilling 1 year data for GRAB", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.319086Z"}
+{"event": "Backfilled 251 rows for GRAB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.446792Z"}
+{"event": "Saved 251 stock records for GRAB", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.464169Z"}
+{"event": "Saved backfill data to database for GRAB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.464346Z"}
+{"ticker": "NNOX", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.470124Z"}
+{"event": "Backfilling 1 year data for NNOX", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.470247Z"}
+{"event": "Backfilled 251 rows for NNOX", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.588979Z"}
+{"event": "Saved 251 stock records for NNOX", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.606296Z"}
+{"event": "Saved backfill data to database for NNOX", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.606405Z"}
+{"ticker": "OPEN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.611107Z"}
+{"event": "Backfilling 1 year data for OPEN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.611202Z"}
+{"event": "Backfilled 251 rows for OPEN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.676416Z"}
+{"event": "Saved 251 stock records for OPEN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.692785Z"}
+{"event": "Saved backfill data to database for OPEN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.692900Z"}
+{"ticker": "F", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.697556Z"}
+{"event": "Backfilling 1 year data for F", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.697647Z"}
+{"event": "Backfilled 251 rows for F", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.975139Z"}
+{"event": "Saved 251 stock records for F", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:05.991392Z"}
+{"event": "Saved backfill data to database for F", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:05.991513Z"}
+{"ticker": "AMDL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.996483Z"}
+{"event": "Backfilling 1 year data for AMDL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:05.996583Z"}
+{"event": "Backfilled 251 rows for AMDL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.118898Z"}
+{"event": "Saved 251 stock records for AMDL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:06.136329Z"}
+{"event": "Saved backfill data to database for AMDL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.136453Z"}
+{"ticker": "STLA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.141927Z"}
+{"event": "Backfilling 1 year data for STLA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.142019Z"}
+{"event": "Backfilled 251 rows for STLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.283190Z"}
+{"event": "Saved 251 stock records for STLA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:06.300062Z"}
+{"event": "Saved backfill data to database for STLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.300170Z"}
+{"ticker": "LAC", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.304770Z"}
+{"event": "Backfilling 1 year data for LAC", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.304857Z"}
+{"event": "Backfilled 251 rows for LAC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.423585Z"}
+{"event": "Saved 251 stock records for LAC", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:06.441497Z"}
+{"event": "Saved backfill data to database for LAC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.441600Z"}
+{"ticker": "VET", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.446165Z"}
+{"event": "Backfilling 1 year data for VET", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.446255Z"}
+{"event": "Backfilled 251 rows for VET", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.609780Z"}
+{"event": "Saved 251 stock records for VET", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T18:09:06.625853Z"}
+{"event": "Saved backfill data to database for VET", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T18:09:06.625973Z"}
+{"tickers_processed": 34, "event": "Analysis complete", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T18:09:06.633997Z"}
+{"path": "data/market_data.db", "event": "Database initialized", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.580730Z"}
+{"tickers": ["RKLB", "HIMS", "HOOD", "ACHR", "SOFI", "META", "AMZN", "UNH", "SHOP", "PLTR", "TSLA", "SOUN", "MSFT", "GOOGL", "ORCL", "NVDA", "QQQ", "SPY", "AAPL", "AMD", "SERV", "NVTS", "ABTC", "BBAI", "BULL", "JOBY", "GRAB", "NNOX", "OPEN", "F", "AMDL", "STLA", "LAC", "VET"], "backfill": true, "force_refresh": false, "event": "Starting market sentiment analysis", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.581087Z"}
+{"ticker": "RKLB", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.581144Z"}
+{"event": "Backfilling 1 year data for RKLB", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.581182Z"}
+{"event": "Backfilled 251 rows for RKLB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:26.880511Z"}
+{"event": "Saved 251 stock records for RKLB", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:26.898759Z"}
+{"event": "Saved backfill data to database for RKLB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:26.898933Z"}
+{"ticker": "HIMS", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.972506Z"}
+{"event": "Backfilling 1 year data for HIMS", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:26.972626Z"}
+{"event": "Backfilled 251 rows for HIMS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.032578Z"}
+{"event": "Saved 251 stock records for HIMS", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.040368Z"}
+{"event": "Saved backfill data to database for HIMS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.040430Z"}
+{"ticker": "HOOD", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.043944Z"}
+{"event": "Backfilling 1 year data for HOOD", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.044000Z"}
+{"event": "Backfilled 251 rows for HOOD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.098699Z"}
+{"event": "Saved 251 stock records for HOOD", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.107397Z"}
+{"event": "Saved backfill data to database for HOOD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.107462Z"}
+{"ticker": "ACHR", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.111418Z"}
+{"event": "Backfilling 1 year data for ACHR", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.111480Z"}
+{"event": "Backfilled 251 rows for ACHR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.176282Z"}
+{"event": "Saved 251 stock records for ACHR", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.187876Z"}
+{"event": "Saved backfill data to database for ACHR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.187957Z"}
+{"ticker": "SOFI", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.192788Z"}
+{"event": "Backfilling 1 year data for SOFI", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.192871Z"}
+{"event": "Backfilled 251 rows for SOFI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.248415Z"}
+{"event": "Saved 251 stock records for SOFI", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.260781Z"}
+{"event": "Saved backfill data to database for SOFI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.260861Z"}
+{"ticker": "META", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.265991Z"}
+{"event": "Backfilling 1 year data for META", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.266079Z"}
+{"event": "Backfilled 251 rows for META", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.335675Z"}
+{"event": "Saved 251 stock records for META", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.351108Z"}
+{"event": "Saved backfill data to database for META", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.351249Z"}
+{"ticker": "AMZN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.357557Z"}
+{"event": "Backfilling 1 year data for AMZN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.357663Z"}
+{"event": "Backfilled 251 rows for AMZN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.418645Z"}
+{"event": "Saved 251 stock records for AMZN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.434798Z"}
+{"event": "Saved backfill data to database for AMZN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.434915Z"}
+{"ticker": "UNH", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.441034Z"}
+{"event": "Backfilling 1 year data for UNH", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.441137Z"}
+{"event": "Backfilled 251 rows for UNH", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.558688Z"}
+{"event": "Saved 251 stock records for UNH", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.576692Z"}
+{"event": "Saved backfill data to database for UNH", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.576813Z"}
+{"ticker": "SHOP", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.583724Z"}
+{"event": "Backfilling 1 year data for SHOP", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.583827Z"}
+{"event": "Backfilled 251 rows for SHOP", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.643967Z"}
+{"event": "Saved 251 stock records for SHOP", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.659485Z"}
+{"event": "Saved backfill data to database for SHOP", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.659653Z"}
+{"ticker": "PLTR", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.665917Z"}
+{"event": "Backfilling 1 year data for PLTR", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.666027Z"}
+{"event": "Backfilled 251 rows for PLTR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.724034Z"}
+{"event": "Saved 251 stock records for PLTR", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.738999Z"}
+{"event": "Saved backfill data to database for PLTR", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.739112Z"}
+{"ticker": "TSLA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.744984Z"}
+{"event": "Backfilling 1 year data for TSLA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.745077Z"}
+{"event": "Backfilled 251 rows for TSLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.804962Z"}
+{"event": "Saved 251 stock records for TSLA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.820241Z"}
+{"event": "Saved backfill data to database for TSLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.820353Z"}
+{"ticker": "SOUN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.826184Z"}
+{"event": "Backfilling 1 year data for SOUN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.826279Z"}
+{"event": "Backfilled 251 rows for SOUN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.885509Z"}
+{"event": "Saved 251 stock records for SOUN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:27.899664Z"}
+{"event": "Saved backfill data to database for SOUN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:27.899755Z"}
+{"ticker": "SOUN", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:27.905584Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "MSFT", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.906436Z"}
+{"event": "Backfilling 1 year data for MSFT", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:27.906508Z"}
+{"event": "Backfilled 251 rows for MSFT", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.018714Z"}
+{"event": "Saved 251 stock records for MSFT", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.036686Z"}
+{"event": "Saved backfill data to database for MSFT", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.036799Z"}
+{"ticker": "GOOGL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.043519Z"}
+{"event": "Backfilling 1 year data for GOOGL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.043623Z"}
+{"event": "Backfilled 251 rows for GOOGL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.107382Z"}
+{"event": "Saved 251 stock records for GOOGL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.123002Z"}
+{"event": "Saved backfill data to database for GOOGL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.123122Z"}
+{"ticker": "ORCL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.129053Z"}
+{"event": "Backfilling 1 year data for ORCL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.129141Z"}
+{"event": "Backfilled 251 rows for ORCL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.212884Z"}
+{"event": "Saved 251 stock records for ORCL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.229673Z"}
+{"event": "Saved backfill data to database for ORCL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.229785Z"}
+{"ticker": "NVDA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.236327Z"}
+{"event": "Backfilling 1 year data for NVDA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.236412Z"}
+{"event": "Backfilled 251 rows for NVDA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.318441Z"}
+{"event": "Saved 251 stock records for NVDA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.334884Z"}
+{"event": "Saved backfill data to database for NVDA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.335001Z"}
+{"ticker": "NVDA", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:28.341550Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "QQQ", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.341899Z"}
+{"event": "Backfilling 1 year data for QQQ", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.341963Z"}
+{"event": "Backfilled 251 rows for QQQ", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.439573Z"}
+{"event": "Saved 251 stock records for QQQ", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.457404Z"}
+{"event": "Saved backfill data to database for QQQ", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.457515Z"}
+{"ticker": "SPY", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.464178Z"}
+{"event": "Backfilling 1 year data for SPY", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.464276Z"}
+{"event": "Backfilled 251 rows for SPY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.577841Z"}
+{"event": "Saved 251 stock records for SPY", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.594786Z"}
+{"event": "Saved backfill data to database for SPY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.594913Z"}
+{"ticker": "AAPL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.601590Z"}
+{"event": "Backfilling 1 year data for AAPL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.601685Z"}
+{"event": "Backfilled 251 rows for AAPL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.727804Z"}
+{"event": "Saved 251 stock records for AAPL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.745162Z"}
+{"event": "Saved backfill data to database for AAPL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.745278Z"}
+{"ticker": "AMD", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.751963Z"}
+{"event": "Backfilling 1 year data for AMD", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.752063Z"}
+{"event": "Backfilled 251 rows for AMD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.809219Z"}
+{"event": "Saved 251 stock records for AMD", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.824861Z"}
+{"event": "Saved backfill data to database for AMD", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.824980Z"}
+{"ticker": "AMD", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:28.831162Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "SERV", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.831459Z"}
+{"event": "Backfilling 1 year data for SERV", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.831526Z"}
+{"event": "Backfilled 251 rows for SERV", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.890639Z"}
+{"event": "Saved 251 stock records for SERV", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.906564Z"}
+{"event": "Saved backfill data to database for SERV", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.906686Z"}
+{"ticker": "NVTS", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.913109Z"}
+{"event": "Backfilling 1 year data for NVTS", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:28.913204Z"}
+{"event": "Backfilled 251 rows for NVTS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.980523Z"}
+{"event": "Saved 251 stock records for NVTS", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:28.997190Z"}
+{"event": "Saved backfill data to database for NVTS", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:28.997307Z"}
+{"ticker": "ABTC", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.004057Z"}
+{"event": "Backfilling 1 year data for ABTC", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.004159Z"}
+{"event": "Backfilled 251 rows for ABTC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.096897Z"}
+{"event": "Saved 251 stock records for ABTC", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.113583Z"}
+{"event": "Saved backfill data to database for ABTC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.113712Z"}
+{"ticker": "BBAI", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.120422Z"}
+{"event": "Backfilling 1 year data for BBAI", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.120522Z"}
+{"event": "Backfilled 251 rows for BBAI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.183004Z"}
+{"event": "Saved 251 stock records for BBAI", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.199378Z"}
+{"event": "Saved backfill data to database for BBAI", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.199498Z"}
+{"ticker": "BBAI", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:29.205694Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "BULL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.205993Z"}
+{"event": "Backfilling 1 year data for BULL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.206057Z"}
+{"event": "Backfilled 251 rows for BULL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.267174Z"}
+{"event": "Saved 251 stock records for BULL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.282585Z"}
+{"event": "Saved backfill data to database for BULL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.282695Z"}
+{"ticker": "JOBY", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.288434Z"}
+{"event": "Backfilling 1 year data for JOBY", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.288520Z"}
+{"event": "Backfilled 251 rows for JOBY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.396027Z"}
+{"event": "Saved 251 stock records for JOBY", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.413990Z"}
+{"event": "Saved backfill data to database for JOBY", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.414109Z"}
+{"ticker": "GRAB", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.420626Z"}
+{"event": "Backfilling 1 year data for GRAB", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.420710Z"}
+{"event": "Backfilled 251 rows for GRAB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.480751Z"}
+{"event": "Saved 251 stock records for GRAB", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.497089Z"}
+{"event": "Saved backfill data to database for GRAB", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.497193Z"}
+{"ticker": "NNOX", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.503022Z"}
+{"event": "Backfilling 1 year data for NNOX", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.503107Z"}
+{"event": "Backfilled 251 rows for NNOX", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.606876Z"}
+{"event": "Saved 251 stock records for NNOX", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.615606Z"}
+{"event": "Saved backfill data to database for NNOX", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.615680Z"}
+{"ticker": "NNOX", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:29.619482Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "OPEN", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.619717Z"}
+{"event": "Backfilling 1 year data for OPEN", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.619759Z"}
+{"event": "Backfilled 251 rows for OPEN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.674236Z"}
+{"event": "Saved 251 stock records for OPEN", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.683404Z"}
+{"event": "Saved backfill data to database for OPEN", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.683467Z"}
+{"ticker": "F", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.687294Z"}
+{"event": "Backfilling 1 year data for F", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.687360Z"}
+{"event": "Backfilled 251 rows for F", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.825944Z"}
+{"event": "Saved 251 stock records for F", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.841965Z"}
+{"event": "Saved backfill data to database for F", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.842079Z"}
+{"ticker": "AMDL", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.848164Z"}
+{"event": "Backfilling 1 year data for AMDL", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.848245Z"}
+{"event": "Backfilled 251 rows for AMDL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.904174Z"}
+{"event": "Saved 251 stock records for AMDL", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:29.919270Z"}
+{"event": "Saved backfill data to database for AMDL", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.919376Z"}
+{"ticker": "STLA", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.925020Z"}
+{"event": "Backfilling 1 year data for STLA", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:29.925105Z"}
+{"event": "Backfilled 251 rows for STLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:29.996241Z"}
+{"event": "Saved 251 stock records for STLA", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:30.011589Z"}
+{"event": "Saved backfill data to database for STLA", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:30.011688Z"}
+{"ticker": "STLA", "error": "[Errno 32] Broken pipe", "event": "Error processing ticker", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:30.017487Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 160, in run\n    self.display.print_indicators(ticker, indicators)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 35, in print_indicators\n    print(tabulate(table_data, headers=[\"Indicator\", \"Value\"], tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
+{"ticker": "LAC", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:30.017800Z"}
+{"event": "Backfilling 1 year data for LAC", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:30.017864Z"}
+{"event": "Backfilled 251 rows for LAC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:30.079736Z"}
+{"event": "Saved 251 stock records for LAC", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:30.094958Z"}
+{"event": "Saved backfill data to database for LAC", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:30.095064Z"}
+{"ticker": "VET", "event": "Processing ticker", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:30.100780Z"}
+{"event": "Backfilling 1 year data for VET", "logger": "__main__", "level": "info", "timestamp": "2026-03-28T19:11:30.100858Z"}
+{"event": "Backfilled 251 rows for VET", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:30.176741Z"}
+{"event": "Saved 251 stock records for VET", "logger": "src.database", "level": "info", "timestamp": "2026-03-28T19:11:30.192128Z"}
+{"event": "Saved backfill data to database for VET", "logger": "src.fetchers", "level": "info", "timestamp": "2026-03-28T19:11:30.192220Z"}
+{"error": "[Errno 32] Broken pipe", "event": "Unexpected error", "logger": "__main__", "level": "error", "timestamp": "2026-03-28T19:11:30.199320Z", "exception": "Traceback (most recent call last):\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 219, in main\n    results = analyzer.run()\n              ^^^^^^^^^^^^^^\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/main.py\", line 169, in run\n    self.display.print_summary(self.results)\n  File \"/Users/ubexbot/.openclaw/workspace-venkat/MarketSentimentAnalyzer/src/display.py\", line 107, in print_summary\n    print(tabulate(summary_data, headers=headers, tablefmt=\"grid\"))\nBrokenPipeError: [Errno 32] Broken pipe"}
