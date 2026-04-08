@@ -1,9 +1,8 @@
-"""Configuration handling for MarketSentimentAnalyzer."""
 
 import json
 import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Optional
 from dataclasses import dataclass, field
 import structlog
 
@@ -22,104 +21,60 @@ class DatabaseConfig:
     """Database configuration."""
     path: str = "data/market_data.db"
     stock_ttl: str = "1d"
-    news_ttl: str = "7d"
-    sentiment_ttl: str = "7d"
     log_dir: str = "logs"
-
-    @property
-    def stock_ttl_days(self) -> int:
-        """Convert TTL string to days."""
-        if self.stock_ttl.endswith('d'):
-            return int(self.stock_ttl.rstrip('d'))
-        return 1  # Default
-
-    @property
-    def news_ttl_days(self) -> int:
-        """Convert TTL string to days."""
-        if self.news_ttl.endswith('d'):
-            return int(self.news_ttl.rstrip('d'))
-        return 7  # Default
-
-    @property
-    def sentiment_ttl_days(self) -> int:
-        """Convert TTL string to days."""
-        if self.sentiment_ttl.endswith('d'):
-            return int(self.sentiment_ttl.rstrip('d'))
-        return 7  # Default
 
 
 @dataclass
 class Config:
     """Application configuration."""
-    tickers: List[str]
-    brave_api_key: str
-    ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
-    news_count: int = 5
+    tickers: List[str] = field(default_factory=list)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
-    backfill_period: str = "1y"
-    force_refresh: bool = False
 
     @classmethod
-    def load(cls, config_path: Path = None, env_path: Path = None, db_config_path: Path = None) -> "Config":
-        """Load configuration from files and environment."""
-        # Load tickers from config/tickers.json
-        if config_path is None:
-            config_path = Path(__file__).parent.parent / "config" / "tickers.json"
+    def load(cls, config_dir: Path = None) -> "Config":
+        """Load configuration from JSON config files.
 
-        with open(config_path) as f:
-            config_data = json.load(f)
-            # Support both {"tickers": [...]} and bare [...]
-            if isinstance(config_data, list):
-                tickers = config_data
-            else:
-                tickers = config_data.get("tickers", [])
+        Args:
+            config_dir: Directory containing config files (defaults to project config/)
+
+        Returns:
+            Config instance with loaded settings
+        """
+        if config_dir is None:
+            config_dir = Path(__file__).parent.parent / "config"
+
+        # Load tickers
+        tickers_path = config_dir / "tickers.json"
+        tickers = []
+        if tickers_path.exists():
+            with open(tickers_path) as f:
+                data = json.load(f)
+                # Support both list and dict format
+                tickers = data if isinstance(data, list) else data.get("tickers", [])
+            logger.info(f"Loaded {len(tickers)} tickers from {tickers_path}")
+        else:
+            logger.warning(f"Tickers file not found: {tickers_path}")
 
         # Load database config
-        if db_config_path is None:
-            db_config_path = Path(__file__).parent.parent / "config" / "database.yaml"
-
         db_config = DatabaseConfig()
-        if db_config_path.exists():
-            if YAML_AVAILABLE:
-                try:
-                    with open(db_config_path) as f:
-                        db_data = yaml.safe_load(f) or {}
-                        db_config = DatabaseConfig(**db_data)
-                except Exception as e:
-                    logger.warning(f"Failed to parse database config: {e}, using defaults")
-            else:
-                logger.warning("PyYAML not installed, using default database config")
-        else:
-            logger.warning(f"Database config not found at {db_config_path}, using defaults")
+        db_config_path = config_dir / "database.yaml"
+        if db_config_path.exists() and YAML_AVAILABLE:
+            try:
+                with open(db_config_path) as f:
+                    db_data = yaml.safe_load(f) or {}
+                db_config.path = db_data.get('path', db_config.path)
+                db_config.stock_ttl = db_data.get('stock_ttl', db_config.stock_ttl)
+                db_config.log_dir = db_data.get('log_dir', db_config.log_dir)
+                logger.info(f"Loaded database config from {db_config_path}")
+            except Exception as e:
+                logger.warning(f"Failed to parse database.yaml: {e}")
+        elif not YAML_AVAILABLE:
+            logger.warning("PyYAML not installed, using default database config")
 
-        # Load environment variables
-        if env_path is None:
-            env_path = Path(__file__).parent.parent / ".env"
-
-        if env_path.exists():
-            from dotenv import load_dotenv
-            load_dotenv(env_path)
-        else:
-            logger.warning(f".env file not found at {env_path}")
-
-        brave_api_key = os.getenv("BRAVE_API_KEY", "")
-        if not brave_api_key:
-            raise ValueError("BRAVE_API_KEY environment variable is required")
-
-        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-        news_count = int(os.getenv("NEWS_COUNT", "5"))
-        backfill_period = os.getenv("BACKFILL_PERIOD", "1y")
-        force_refresh = os.getenv("FORCE_REFRESH", "false").lower() == "true"
-
-        return cls(
+        config = cls(
             tickers=tickers,
-            brave_api_key=brave_api_key,
-            ollama_host=ollama_host,
-            ollama_model=ollama_model,
-            news_count=news_count,
-            database=db_config,
-            backfill_period=backfill_period,
-            force_refresh=force_refresh
+            database=db_config
         )
+
+        logger.info("Configuration loaded", tickers_count=len(tickers))
+        return config

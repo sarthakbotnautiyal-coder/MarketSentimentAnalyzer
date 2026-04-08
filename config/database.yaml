@@ -1,6 +1,4 @@
 # Database configuration
 path: data/market_data.db
 stock_ttl: '1d'
-news_ttl: '7d'
-sentiment_ttl: '7d'
 log_dir: logs

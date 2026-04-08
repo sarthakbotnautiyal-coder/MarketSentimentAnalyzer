@@ -1,4 +1,3 @@
-"""Database caching layer for MarketSentimentAnalyzer."""
 
 import sqlite3
 import json
@@ -26,7 +25,7 @@ class DatabaseManager:
         """Create database tables if they don't exist."""
         cursor = self.conn.cursor()
 
-        # Stock daily data table (simplified: only price/volume)
+        # Stock daily data table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS stock_daily (
                 date TEXT,
@@ -60,15 +59,27 @@ class DatabaseManager:
                 vol_ratio REAL,
                 high_20d REAL,
                 low_20d REAL,
+                current_price REAL,
                 PRIMARY KEY (date, ticker)
             )
         ''')
 
-        # Indexes for stock_daily
+        # Indexes
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_ticker ON stock_daily(ticker)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_date ON stock_daily(date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON indicators(ticker)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_date ON indicators(date)')
+
+        self.conn.commit()
+        self._migrate_tables()
+
+    def _migrate_tables(self):
+        cursor = self.conn.cursor()
+        tables_to_drop = [row['name'] for row in cursor.fetchall()]
+
+        for table in tables_to_drop:
+            cursor.execute(f'DROP TABLE IF EXISTS {table}')
+            logger.info(f"Dropped deprecated table: {table}")
 
         self.conn.commit()
 
@@ -119,11 +130,7 @@ class DatabaseManager:
         return result['latest_date'] if result and result['latest_date'] else None
 
     def get_stock_data(self, ticker: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-        """Retrieve stock data from database.
-
-        Returns a DataFrame with columns matching yfinance format:
-        Open, High, Low, Close, Volume with datetime index.
-        """
+        """Retrieve stock data from database."""
         query = '''SELECT date, open, high, low, close, volume 
                    FROM stock_daily WHERE ticker = ?'''
         params = [ticker]
@@ -144,7 +151,6 @@ class DatabaseManager:
         if not rows:
             return pd.DataFrame()
 
-        # Build DataFrame
         data = []
         dates = []
         for row in rows:
@@ -160,158 +166,44 @@ class DatabaseManager:
         df = pd.DataFrame(data, index=pd.to_datetime(dates))
         return df
 
-    # News methods
-    def save_news(self, ticker: str, articles: List[Dict[str, str]]):
-        """Save news articles to database, skipping duplicates by URL."""
+    def is_data_fresh(self, table_name: str, ticker: str, ttl_days: int = 1) -> bool:
+        """Check if data is fresh within TTL."""
         cursor = self.conn.cursor()
-        saved_count = 0
+        cutoff_date = (datetime.now() - timedelta(days=ttl_days)).strftime('%Y-%m-%d')
 
-        for article in articles:
-            url = article.get('url', '')
-            if not url:
-                continue  # Skip articles without URL
-
-            # Check if already exists
+        if table_name == 'stock_daily':
             cursor.execute('''
-                SELECT 1 FROM news WHERE url = ? AND ticker = ?
-            ''', (url, ticker))
-
-            if cursor.fetchone():
-                continue  # Skip duplicate
-
-            cursor.execute('''
-                INSERT OR IGNORE INTO news
-                (date, ticker, title, url, snippet, source, published)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                datetime.now().strftime('%Y-%m-%d'),
-                ticker,
-                article.get('title', ''),
-                url,
-                article.get('snippet', ''),
-                article.get('source', ''),
-                article.get('published', '')
-            ))
-            saved_count += 1
-
-        self.conn.commit()
-        if saved_count > 0:
-            logger.info(f"Saved {saved_count} new news articles for {ticker}")
-
-    def get_latest_news_date(self, ticker: str) -> Optional[str]:
-        """Get the latest news date in cache for a ticker."""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT MAX(date) as latest_date
-            FROM news
-            WHERE ticker = ?
-        ''', (ticker,))
-        result = cursor.fetchone()
-        return result['latest_date'] if result and result['latest_date'] else None
-
-    def get_cached_news(self, ticker: str, days_back: int = 7) -> List[Dict[str, str]]:
-        """Get cached news from the last N days."""
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT title, url, snippet, source, published, date
-            FROM news
-            WHERE ticker = ? AND date >= ?
-            ORDER BY date DESC
-        ''', (ticker, cutoff_date))
-        rows = cursor.fetchall()
-
-        articles = []
-        for row in rows:
-            articles.append({
-                'title': row['title'],
-                'url': row['url'],
-                'snippet': row['snippet'],
-                'source': row['source'],
-                'published': row['published']
-            })
-
-        return articles
-
-    # Sentiment methods
-    def save_sentiment(self, ticker: str, date: str, sentiment: str, confidence: float, explanation: str):
-        """Save sentiment analysis to database."""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO sentiment
-            (date, ticker, sentiment, confidence, explanation)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (date, ticker, sentiment, confidence, explanation))
-        self.conn.commit()
-        logger.debug(f"Saved sentiment for {ticker} on {date}")
-
-    def get_latest_sentiment_date(self, ticker: str) -> Optional[str]:
-        """Get the latest sentiment date in cache for a ticker."""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT MAX(date) as latest_date
-            FROM sentiment
-            WHERE ticker = ?
-        ''', (ticker,))
-        result = cursor.fetchone()
-        return result['latest_date'] if result and result['latest_date'] else None
-
-    def get_cached_sentiment(self, ticker: str, days_back: int = 7) -> Optional[Dict[str, Any]]:
-        """Get most recent sentiment from cache within N days."""
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT sentiment, confidence, explanation, date
-            FROM sentiment
-            WHERE ticker = ? AND date >= ?
-            ORDER BY date DESC
-            LIMIT 1
-        ''', (ticker, cutoff_date))
-        row = cursor.fetchone()
-
-        if row:
-            return {
-                'sentiment': row['sentiment'],
-                'confidence': row['confidence'],
-                'explanation': row['explanation'],
-                'date': row['date']
-            }
-        return None
-
-    # Freshness checking
-    def is_data_fresh(self, table: str, ticker: str, ttl_days: int) -> bool:
-        """Check if data for a ticker is fresh based on TTL."""
-        if table == 'stock_daily':
-            latest = self.get_latest_stock_date(ticker)
-        elif table == 'news':
-            latest = self.get_latest_news_date(ticker)
-        elif table == 'sentiment':
-            latest = self.get_latest_sentiment_date(ticker)
+                SELECT MAX(date) as latest_date
+                FROM stock_daily WHERE ticker = ?
+            ''', (ticker,))
         else:
             return False
 
-        if not latest:
+        result = cursor.fetchone()
+        if not result or not result['latest_date']:
             return False
 
-        try:
-            latest_date = datetime.strptime(latest, '%Y-%m-%d')
-            cutoff = datetime.now() - timedelta(days=ttl_days)
-            return latest_date >= cutoff
-        except (ValueError, TypeError):
-            return False
+        return result['latest_date'] >= cutoff_date
 
     # Indicators methods
-    def save_indicators(self, ticker: str, date: str, indicators: Dict[str, Any]):
-        """Save or replace indicators row."""
+    def truncate_indicators(self):
+        """Truncate all data from indicators table."""
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM indicators')
+        deleted_count = cursor.rowcount
+        self.conn.commit()
+        logger.info(f"Truncated indicators table: {deleted_count} rows deleted")
+        return deleted_count
+
+    def insert_latest_indicator(self, ticker: str, date: str, indicators: Dict[str, Any]):
+        """Insert or replace indicator row for latest day's data."""
         cursor = self.conn.cursor()
         cursor.execute('''
             INSERT OR REPLACE INTO indicators
             (date, ticker, rsi, macd, macd_hist, sma20, sma50, sma200,
              bb_upper, bb_middle, bb_lower, atr,
-             vol_10d, vol_30d, vol_ratio, high_20d, low_20d)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             vol_10d, vol_30d, vol_ratio, high_20d, low_20d, current_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             date,
             ticker,
@@ -328,11 +220,36 @@ class DatabaseManager:
             indicators.get('Volume_10d_Avg'),
             indicators.get('Volume_30d_Avg'),
             indicators.get('Volume_Ratio'),
-            indicators.get('High_20d'),
-            indicators.get('Low_20d')
+            indicators.get('Recent_High'),
+            indicators.get('Recent_Low'),
+            indicators.get('Current_Price')
         ))
         self.conn.commit()
-        logger.debug(f"Saved indicators for {ticker} on {date}")
+        logger.debug(f"Inserted latest indicators for {ticker} on {date}")
+
+    def get_indicator_rows(self, ticker: str, date: str) -> Optional[Dict[str, Any]]:
+        """Retrieve an indicator row by ticker and date."""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM indicators WHERE ticker = ? AND date = ?', (ticker, date))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+    def get_all_latest_indicators(self) -> List[Tuple[str, str]]:
+        """Get all tickers with their latest indicator date."""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT ticker, MAX(date) as latest_date
+            FROM indicators
+            GROUP BY ticker
+            ORDER BY ticker
+        ''')
+        return [(row['ticker'], row['latest_date']) for row in cursor.fetchall()]
+
+    def save_indicators(self, ticker: str, date: str, indicators: Dict[str, Any]):
+        """Save or replace indicators row (alias for insert_latest_indicator)."""
+        self.insert_latest_indicator(ticker, date, indicators)
 
     def get_indicators(self, ticker: str, date: str) -> Optional[Dict[str, Any]]:
         """Retrieve indicators for a ticker on a given date."""
@@ -343,24 +260,22 @@ class DatabaseManager:
             return None
         return dict(row)
 
-    def clear_old_data(self, days: int = 30):
-        """Delete data older than N days to keep database size manageable."""
+    def count_indicators(self) -> int:
+        """Count total rows in indicators table."""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT COUNT(*) as count FROM indicators')
+        result = cursor.fetchone()
+        return result['count'] if result else 0
+
+    def clear_old_stock_data(self, days: int = 365):
+        """Delete stock data older than N days to keep database size manageable."""
         cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
         cursor = self.conn.cursor()
-
-        # Clear old stock data
         cursor.execute('DELETE FROM stock_daily WHERE date < ?', (cutoff,))
         stock_deleted = cursor.rowcount
 
-        # Clear old news
-        cursor.execute('DELETE FROM news WHERE date < ?', (cutoff,))
-        news_deleted = cursor.rowcount
-
-        # Clear old sentiment (keep longer maybe)
-        sentiment_cutoff = (datetime.now() - timedelta(days=days*3)).strftime('%Y-%m-%d')
-        cursor.execute('DELETE FROM sentiment WHERE date < ?', (sentiment_cutoff,))
-        sentiment_deleted = cursor.rowcount
-
         self.conn.commit()
-        logger.info(f"Cleared old data: {stock_deleted} stock, {news_deleted} news, {sentiment_deleted} sentiment records")
+        logger.info(f"Cleared old stock data: {stock_deleted} records")
+        return stock_deleted
+cursor.execute('DROP TABLE IF EXISTS sentiment')

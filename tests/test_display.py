@@ -1,109 +1,70 @@
-"""Tests for display module."""
+"""Tests for display module (indicators-only output)."""
 
-import pytest
-from io import StringIO
 from src.display import Display
+import pytest
 
 
-def test_print_indicators_with_data(capsys):
-    """Test printing indicators table."""
+def test_print_indicators(capsys):
+    """Test printing indicators for a ticker."""
     indicators = {
-        'Current_Price': 150.0,
+        'Current_Price': 150.00,
         'RSI_14': 65.5,
-        'SMA_50': 148.0,
-        'EMA_50': 149.0
+        'MACD': 0.5
     }
+
     Display.print_indicators("AAPL", indicators)
 
     captured = capsys.readouterr()
     assert "AAPL" in captured.out
-    assert "Current_Price" in captured.out
-    assert "RSI_14" in captured.out
+    # Price formatted as int (150) or float (150.00) depending on rounding
+    assert ("150" in captured.out or "150.00" in captured.out)
+    assert "65.5" in captured.out
+    assert "0.5" in captured.out
 
 
 def test_print_indicators_with_error(capsys):
     """Test printing indicators with error."""
-    indicators = {"error": "Failed to fetch data"}
+    indicators = {"error": "Failed to fetch"}
+
+    Display.print_indicators("AAPL", indicators)
+
+    captured = capsys.readouterr()
+    assert "Failed to fetch" in captured.out
+
+
+def test_print_indicators_empty(capsys):
+    """Test printing empty indicators."""
+    indicators = {}
+
     Display.print_indicators("AAPL", indicators)
 
     captured = capsys.readouterr()
     assert "AAPL" in captured.out
-    assert "Failed to fetch data" in captured.out
-
-
-def test_print_news_with_articles(capsys):
-    """Test printing news articles."""
-    articles = [
-        {
-            'title': 'Test Article 1',
-            'url': 'http://example.com/1',
-            'snippet': 'This is a test summary that is long enough to be truncated',
-            'published': '2024-01-01'
-        },
-        {
-            'title': 'Test Article 2',
-            'url': 'http://example.com/2',
-            'snippet': 'Another test summary',
-            'published': '2024-01-02'
-        }
-    ]
-    Display.print_news("AAPL", articles)
-
-    captured = capsys.readouterr()
-    assert "AAPL" in captured.out
-    assert "Test Article 1" in captured.out
-    assert "Test Article 2" in captured.out
-    assert "http://example.com/1" in captured.out
-
-
-def test_print_news_empty(capsys):
-    """Test printing empty news."""
-    Display.print_news("AAPL", [])
-
-    captured = capsys.readouterr()
-    assert "AAPL" in captured.out
-    assert "No news" in captured.out
-
-
-def test_print_sentiment(capsys):
-    """Test printing sentiment."""
-    sentiment = {
-        'sentiment': 'bullish',
-        'confidence': 0.85,
-        'explanation': 'Positive earnings report'
-    }
-    Display.print_sentiment("AAPL", sentiment)
-
-    captured = capsys.readouterr()
-    assert "AAPL" in captured.out
-    assert "BULLISH" in captured.out or "bullish" in captured.out.lower()
-    assert "0.85" in captured.out
 
 
 def test_print_summary(capsys):
-    """Test summary printing."""
+    """Test printing summary table."""
     results = {
         "AAPL": {
             "indicators": {
-                "Current_Price": 150.0,
+                "Current_Price": 150.00,
                 "Change": 2.5,
                 "RSI_14": 65.5
-            },
-            "sentiment": {"sentiment": "bullish"}
+            }
         },
         "MSFT": {
             "indicators": {
-                "Current_Price": 300.0,
-                "Change": -1.0,
+                "Current_Price": 300.00,
+                "Change": -1.2,
                 "RSI_14": 45.0
-            },
-            "sentiment": {"sentiment": "neutral"}
+            }
         }
     }
+
     Display.print_summary(results)
 
     captured = capsys.readouterr()
     assert "SUMMARY" in captured.out
     assert "AAPL" in captured.out
     assert "MSFT" in captured.out
-    assert "BULLISH" in captured.out or "bullish" in captured.out.lower()
+    assert "$150.00" in captured.out

@@ -45,59 +45,52 @@ logger = structlog.get_logger()
 def compute_and_store_indicators(db: DatabaseManager, ticker: str, as_of_date: str = None):
     """
     Compute indicators for a ticker and store them in the database.
-    
+    Stores only the latest day's indicators after truncation.
+
     Args:
         db: Database manager instance
         ticker: Stock ticker symbol
-        as_of_date: Compute indicators as of this date (YYYY-MM-DD). 
+        as_of_date: Compute indicators as of this date (YYYY-MM-DD).
                     If None, uses latest available date.
     """
-    # Determine the date range needed
-    # To compute 200-day SMA and 30-day volume averages, we need at least that much history
-    # We'll fetch 400 days to be safe for all rolling calculations
     end_date = as_of_date if as_of_date else datetime.now().strftime('%Y-%m-%d')
-    
+
     # Fetch sufficient historical data from database
-    # We need enough data to compute all rolling indicators (SMA200, ATR14, etc)
-    # Fetch 400 days prior to the as_of_date to ensure enough data
     start_date_dt = datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=400)
     start_date = start_date_dt.strftime('%Y-%m-%d')
-    
-    # Get stock data from database
+
     df = db.get_stock_data(ticker, start_date=start_date, end_date=end_date)
-    
+
     if df.empty:
         logger.error(f"No stock data found for {ticker} in date range {start_date} to {end_date}")
         return False
-    
-    # Ensure we have enough data
+
+    # Check if we have enough data
     MIN_DATA_REQUIRED = 200  # For SMA200
     if len(df) < MIN_DATA_REQUIRED:
         logger.warning(f"Insufficient data for {ticker}: have {len(df)} rows, need at least {MIN_DATA_REQUIRED}")
-        # Still try to compute what we can, but some indicators will be None
-    
+
     # Calculate indicators using StockDataFetcher method
     fetcher = StockDataFetcher()
     indicators = fetcher.calculate_indicators(df)
-    
-    # Check if we got valid results
+
     if indicators.get('Current_Price') is None:
         logger.error(f"Failed to compute indicators for {ticker}: no price data")
         return False
-    
+
     # Determine the date to store: use the latest date in the data that is <= as_of_date
     latest_date_in_data = df.index.max().strftime('%Y-%m-%d')
     if as_of_date is None:
         store_date = latest_date_in_data
     else:
         store_date = as_of_date if as_of_date <= latest_date_in_data else latest_date_in_data
-    
-    # Save to database
-    db.save_indicators(ticker, store_date, indicators)
-    logger.info(f"Saved indicators for {ticker} as of {store_date}", 
+
+    # Save to database (latest day only)
+    db.insert_latest_indicator(ticker, store_date, indicators)
+    logger.info(f"Saved indicators for {ticker} as of {store_date}",
                 price=indicators.get('Current_Price'),
                 rsi=indicators.get('RSI_14'))
-    
+
     return True
 
 
@@ -115,7 +108,7 @@ def main():
         type=str
     )
     args = parser.parse_args()
-    
+
     # Validate date format if provided
     if args.as_of_date:
         try:
@@ -123,22 +116,26 @@ def main():
         except ValueError:
             logger.error("Invalid date format. Use YYYY-MM-DD")
             return 1
-    
+
     try:
         # Load config
         config = Config.load()
-        
+
         # Initialize database
         db = DatabaseManager(config.database.path)
-        
+
+        # Truncate indicators table before recalculating
+        logger.info("Truncating indicators table for fresh calculation")
+        db.truncate_indicators()
+
         # Determine which tickers to process
         tickers = [args.ticker] if args.ticker else config.tickers
         logger.info("Computing indicators", tickers=tickers, as_of_date=args.as_of_date or "latest")
-        
+
         # Process each ticker
         success_count = 0
         fail_count = 0
-        
+
         for ticker in tickers:
             try:
                 if compute_and_store_indicators(db, ticker, args.as_of_date):
@@ -148,13 +145,13 @@ def main():
             except Exception as e:
                 logger.error(f"Failed to compute indicators for {ticker}", error=str(e), exc_info=True)
                 fail_count += 1
-        
+
         db.close()
-        
+
         logger.info("Computation complete", success=success_count, failed=fail_count)
         print(f"✓ Completed: {success_count} succeeded, {fail_count} failed")
         return 0 if fail_count == 0 else 1
-        
+
     except Exception as e:
         logger.error("Fatal error", error=str(e), exc_info=True)
         print(f"Fatal error: {e}", file=sys.stderr)
