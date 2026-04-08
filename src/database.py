@@ -281,3 +281,4 @@ class DatabaseManager:
         self.conn.commit()
         logger.info(f"Cleared old stock data: {stock_deleted} records")
         return stock_deleted
+cursor.execute('DROP TABLE IF EXISTS sentiment')
