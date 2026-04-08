@@ -83,22 +83,7 @@ def get_indicators(db_path: str, ticker: str, target_date: str = None) -> dict:
         'Current_Price': row['current_price'],
     }
 
-    # Optional: sentiment (if available)
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT sentiment, confidence FROM sentiment WHERE ticker = ? AND date = ?",
-            (ticker, row['date'])
-        )
-        sent_row = cursor.fetchone()
-        if sent_row:
-            indicators['Sentiment'] = sent_row['sentiment']
-            indicators['Sentiment_Confidence'] = sent_row['confidence']
-    except:
-        pass  # Ignore if no sentiment
-
-    return dict(indicators)  # Remove None? No, engine handles None
+    return dict(indicators)
 
 
 def main():

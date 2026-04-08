@@ -1,93 +1,64 @@
 """Tests for configuration module."""
 
 import json
-import os
 import tempfile
 from pathlib import Path
-from src.config import Config
-
-
-def test_config_load_success(tmp_path):
-    """Test successful config loading."""
-    # Create tickers.json
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    tickers_file = config_dir / "tickers.json"
-    tickers_file.write_text(json.dumps({"tickers": ["AAPL", "MSFT"]}))
-
-    # Create .env
-    env_file = tmp_path / ".env"
-    env_file.write_text("BRAVE_API_KEY=test_key\nOLLAMA_HOST=http://test:11434\n")
-
-    # Patch paths
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Copy files to temp directory
-        dest_config = Path(tmpdir) / "config" / "tickers.json"
-        dest_config.parent.mkdir()
-        dest_config.write_text(tickers_file.read_text())
-        dest_env = Path(tmpdir) / ".env"
-        dest_env.write_text(env_file.read_text())
-
-        # Override load method paths
-        original_load = Config.load
-        def patched_load(config_path=None, env_path=None):
-            if config_path is None:
-                config_path = dest_config
-            if env_path is None:
-                env_path = dest_env
-            return original_load(config_path, env_path)
-
-        Config.load = staticmethod(patched_load)
-
-        try:
-            config = Config.load()
-            assert config.tickers == ["AAPL", "MSFT"]
-            assert config.brave_api_key == "test_key"
-            assert config.ollama_host == "http://test:11434"
-            assert config.news_count == 5
-        finally:
-            Config.load = original_load
-
-
-def test_config_missing_brave_api_key(tmp_path):
-    """Test error when BRAVE_API_KEY is missing."""
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    tickers_file = config_dir / "tickers.json"
-    tickers_file.write_text(json.dumps({"tickers": ["AAPL"]}))
-
-    env_file = tmp_path / ".env"
-    env_file.write_text("")  # No API key
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest_config = Path(tmpdir) / "config" / "tickers.json"
-        dest_config.parent.mkdir()
-        dest_config.write_text(tickers_file.read_text())
-        dest_env = Path(tmpdir) / ".env"
-        dest_env.write_text("")
-
-        original_load = Config.load
-        def patched_load(config_path=None, env_path=None):
-            if config_path is None:
-                config_path = dest_config
-            if env_path is None:
-                env_path = dest_env
-            return original_load(config_path, env_path)
-
-        Config.load = staticmethod(patched_load)
-
-        try:
-            Config.load()
-            assert False, "Should have raised ValueError"
-        except ValueError as e:
-            assert "BRAVE_API_KEY" in str(e)
-        finally:
-            Config.load = original_load
+from src.config import Config, DatabaseConfig
 
 
 def test_config_default_values():
     """Test default configuration values."""
-    # Test that Config dataclass has sensible defaults
-    from src.config import Config
-    assert Config.ollama_model == "qwen2.5:7b"
-    assert Config.news_count == 5
+    db_config = DatabaseConfig()
+    assert db_config.path == "data/market_data.db"
+    assert db_config.stock_ttl == "1d"
+
+
+def test_config_load_success():
+    """Test successful config loading from directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
+
+        # Create tickers.json
+        tickers_file = config_dir / "tickers.json"
+        tickers_file.write_text(json.dumps(["AAPL", "MSFT"]))
+
+        # Create database.yaml
+        db_file = config_dir / "database.yaml"
+        db_file.write_text("path: data/test.db\nstock_ttl: '2d'\nlog_dir: test_logs\n")
+
+        config = Config.load(config_dir)
+
+        assert config.tickers == ["AAPL", "MSFT"]
+        assert config.database.path == "data/test.db"
+        assert config.database.stock_ttl == "2d"
+        assert config.database.log_dir == "test_logs"
+
+
+def test_config_load_tickers_dict_format():
+    """Test loading tickers from dict format (legacy)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
+
+        # Create tickers.json with dict format
+        tickers_file = config_dir / "tickers.json"
+        tickers_file.write_text(json.dumps({"tickers": ["GOOGL", "AMZN"]}))
+
+        config = Config.load(config_dir)
+        assert config.tickers == ["GOOGL", "AMZN"]
+
+
+def test_config_load_missing_db_config():
+    """Test loading config without database.yaml."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
+
+        tickers_file = config_dir / "tickers.json"
+        tickers_file.write_text(json.dumps(["TSLA"]))
+
+        config = Config.load(config_dir)
+
+        assert config.tickers == ["TSLA"]
+        assert config.database.path == "data/market_data.db"  # Default

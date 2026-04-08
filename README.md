@@ -1,15 +1,16 @@
 # MarketSentimentAnalyzer
 
+A Python application that fetches market data and calculates technical indicators for stock tickers. Uses SQLite for persistent caching and performs delta fetching to minimize API calls.
 
 ## Features
 
-- **Technical Indicators**: Fetches stock data and calculates RSI, MACD, SMA, and EMA across multiple timeframes
+- **Technical Indicators**: Fetches stock data and calculates RSI, MACD, SMA, EMA across multiple timeframes
 - **Persistent Caching**: SQLite database stores all data to avoid rate limits and speed up repeated runs
-- **Incremental Updates**: Only fetches new data; backfill 1-year historical for new tickers
+- **Incremental/Delta Updates**: Only fetches new data since last stored date; backfill 1-year historical for new tickers
 - **Console Tables**: Beautiful formatted output with tabulate
 - **Structured Logging**: Uses structlog for clear, structured logs
 - **Robust Error Handling**: Graceful degradation when services are unavailable; falls back to cached data
-- **Comprehensive Tests**: Pytest suite with mocks for all external services
+- **Comprehensive Tests**: Pytest suite with mocks for external services
 
 ## Project Structure
 
@@ -23,6 +24,7 @@ MarketSentimentAnalyzer/
 │   ├── config.py           # Configuration handling
 │   ├── database.py         # SQLite database manager
 │   ├── display.py          # Console output formatting
+│   ├── fetchers.py         # Stock data fetching with caching
 │   └── main.py             # Application entry point
 ├── tests/
 │   ├── __init__.py
@@ -33,7 +35,6 @@ MarketSentimentAnalyzer/
 │   └── test_main.py       # Integration tests
 ├── data/                   # (Created on first run)
 │   └── market_data.db     # SQLite database with cached data
-├── .env.example            # Environment template
 ├── requirements.txt        # Pip dependencies
 ├── pyproject.toml          # Poetry configuration
 └── README.md
@@ -45,11 +46,6 @@ MarketSentimentAnalyzer/
 
 - Python 3.9+
 - Poetry (optional, for dependency management)
-- [Ollama](https://ollama.ai) running locally with `qwen2.5:7b` model:
-  ```bash
-  ollama pull qwen2.5:7b
-  ```
-- Brave Search API key (free tier available at [brave.com/search/api/](https://brave.com/search/api/))
 
 ### Installation
 
@@ -65,27 +61,12 @@ pip install -r requirements.txt
 
 ### Configuration
 
-1. Copy the environment template:
-   ```bash
-   cp .env.example .env
-   ```
+1. Tickers to analyze are configured in `config/tickers.json`.
 
-2. Edit `.env` and add your Brave API key:
-   ```env
-   BRAVE_API_KEY=your_brave_api_key_here
-   ```
-
-3. (Optional) Configure Ollama location if not on localhost:
-   ```env
-   OLLAMA_HOST=http://localhost:11434
-   ```
-
-4. (Optional) Change ticker list in `config/tickers.json`.
-
-5. (Optional) Adjust caching TTLs in `config/database.yaml`:
+2. Database settings are in `config/database.yaml`:
    ```yaml
    path: data/market_data.db
-   stock_ttl: '1d'      # Stock data considered fresh for 1 day
+   stock_ttl: 30              # Stock data retention (days)
    ```
 
 ## Running
@@ -108,11 +89,11 @@ On first run, backfill 1 year of historical stock data:
 python3 -m src.main --backfill 1y
 ```
 
-This downloads a full year of historical data for all tickers and stores it in the database.
+This downloads a full year of historical data for all tickers and stores it in the database. Indicators are calculated and only the latest day's indicators are stored (one row per ticker).
 
 ### Force Refresh
 
-Bypass cache and fetch fresh data from all APIs (useful for testing or manual updates):
+Bypass cache and fetch fresh data from all sources:
 
 ```bash
 python3 -m src.main --force-refresh
@@ -126,7 +107,8 @@ python3 -m src.main --backfill 1y --force-refresh
 
 ### How Caching Works
 
-- **Stock Data**: Cached in `stock_daily` table with date+ticker primary key. Daily runs will only fetch fresh data if the latest cached date is older than `stock_ttl` (default 1 day).
+- **Stock Data**: Cached in `stock_daily` table with date+ticker primary key. Daily runs use delta fetching - only new data since the last stored date is fetched.
+- **Indicators**: The `indicators` table is truncated on each run, and only the latest day's indicators are stored (one row per ticker).
 
 On API failures, the tool falls back to the latest cached data (if available) and logs a warning.
 
@@ -137,14 +119,15 @@ The tool prints:
 1. **Indicators Table** for each ticker:
    - RSI (14)
    - MACD, Signal, Histogram
-   - SMA (5, 10, 20, 50, 100, 200)
-   - EMA (5, 10, 20, 50, 100, 200)
+   - SMA (20, 50, 200)
+   - EMA (5)
+   - Bollinger Bands (Upper, Middle, Lower)
+   - ATR (14)
+   - Volume averages (10d, 30d) and ratio
+   - 20-day High/Low
    - Current Price, Change %
 
-2. **News Articles**: Top 5 latest headlines with summaries
-
-
-4. **Summary Table**: Combined view across all tickers
+2. **Summary Table**: Combined view across all tickers
 
 ## Database Schema
 
@@ -158,28 +141,30 @@ CREATE TABLE stock_daily (
     low REAL,
     close REAL,
     volume INTEGER,
-    indicators TEXT,  -- JSON with calculated indicators
     PRIMARY KEY (date, ticker)
 );
 ```
 
+### indicators
 ```sql
+CREATE TABLE indicators (
     date TEXT,
     ticker TEXT,
-    title TEXT,
-    url TEXT,
-    snippet TEXT,
-    source TEXT,
-    published TEXT,
-    PRIMARY KEY (url, ticker)
-);
-```
-
-```sql
-    date TEXT,
-    ticker TEXT,
-    confidence REAL,
-    explanation TEXT,
+    rsi REAL,
+    macd REAL,
+    macd_hist REAL,
+    sma20 REAL,
+    sma50 REAL,
+    sma200 REAL,
+    bb_upper REAL,
+    bb_middle REAL,
+    bb_lower REAL,
+    atr REAL,
+    vol_10d REAL,
+    vol_30d REAL,
+    vol_ratio REAL,
+    high_20d REAL,
+    low_20d REAL,
     PRIMARY KEY (date, ticker)
 );
 ```
@@ -196,18 +181,14 @@ poetry run pytest -v
 pytest -v
 ```
 
-Tests mock all external dependencies:
+Tests mock external dependencies:
 - `yfinance` (stock data)
-- Brave Search API
-- Ollama API
 
 Database tests use a temporary SQLite database.
 
 ## Safety Notes
 
 - **No trading**: This tool is for analysis only, not for executing trades
-- **Rate limits**: Respect Brave Search API rate limits (free tier: 2,000 queries/month)
-- **API key security**: Never commit `.env` file; use `.env.example` as template
 - **Database**: SQLite file (`data/market_data.db`) is ignored by git; local cache only
 
 ## Requirements
@@ -217,20 +198,21 @@ Database tests use a temporary SQLite database.
 
 ## Architecture
 
-1. **Config**: Loads tickers, environment settings, and database configuration
+1. **Config**: Loads tickers and database configuration
+2. **Database**: SQLite with two tables:
+   - `stock_daily`: Historical OHLCV data per ticker per date
+   - `indicators`: Latest technical indicators per ticker (truncated each run)
 3. **Fetchers**:
-   - `StockDataFetcher`: Uses yfinance + pandas_ta; caches in database; supports backfill and incremental updates
-   - `NewsFetcher`: Brave Search API with deduplication and TTL caching
-4. **SentimentAnalyzer**: Ollama API with TTL caching to avoid spamming LLM
-5. **Display**: tabulate for console tables
-6. **Main**: Orchestrates workflow, handles CLI args, manages database lifecycle, handles errors
+   - `StockDataFetcher`: Uses yfinance + pandas_ta; caches in database; supports backfill and incremental/delta updates
+4. **Display**: tabulate for console tables
+5. **Main**: Orchestrates workflow, handles CLI args, manages database lifecycle, handles errors
 
 ## Extension Ideas
 
 - Export to CSV/JSON
 - Email reports
 - Web dashboard with Flask/FastAPI
-- Additional indicators (Bollinger Bands, ATR, etc.)
+- Additional indicators (more timeframes, custom calculations)
 - Discord/Telegram/Slack notifications
 - Webhook triggers for significant changes
 
