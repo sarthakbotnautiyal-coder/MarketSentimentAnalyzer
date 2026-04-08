@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Main entry point for Market Sentiment Analyzer.
 
 Fetches stock data with incremental/delta updates, calculates technical indicators,
 and stores only the latest day's indicators in the database for each ticker.
@@ -187,7 +186,6 @@ def parse_args() -> argparse.Namespace:
         Parsed arguments namespace
     """
     parser = argparse.ArgumentParser(
-        description="MarketSentimentAnalyzer - Stock Technical Analysis",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
@@ -204,7 +202,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-class MarketSentimentAnalyzer:
     """Main application class for stock technical analysis.
 
     This class provides backward compatibility and structure similar
@@ -287,7 +284,6 @@ def main():
             return 1
 
         # Initialize and run analyzer
-        analyzer = MarketSentimentAnalyzer(
             config,
             backfill=args.backfill is not None,
             force_refresh=args.force_refresh

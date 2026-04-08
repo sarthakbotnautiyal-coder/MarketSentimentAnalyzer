@@ -1,4 +1,3 @@
-"""Configuration handling for MarketSentimentAnalyzer."""
 
 import json
 import os

@@ -1,4 +1,3 @@
-"""Database caching layer for MarketSentimentAnalyzer."""
 
 import sqlite3
 import json
@@ -75,9 +74,7 @@ class DatabaseManager:
         self._migrate_tables()
 
     def _migrate_tables(self):
-        """Drop deprecated table structures (news, sentiment)."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('news', 'sentiment')")
         tables_to_drop = [row['name'] for row in cursor.fetchall()]
 
         for table in tables_to_drop:
@@ -281,3 +278,4 @@ class DatabaseManager:
         self.conn.commit()
         logger.info(f"Cleared old stock data: {stock_deleted} records")
         return stock_deleted
+cursor.execute('DROP TABLE IF EXISTS sentiment')
