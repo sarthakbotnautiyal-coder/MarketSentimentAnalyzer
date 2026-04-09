@@ -1,4 +1,3 @@
-
 import sqlite3
 import json
 from datetime import datetime, timedelta
@@ -39,6 +38,14 @@ class DatabaseManager:
             )
         ''')
 
+        # Ticker metadata table - tracks last fetched date per ticker
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ticker_metadata (
+                ticker TEXT PRIMARY KEY,
+                last_fetched_date TEXT
+            )
+        ''')
+
         # Indicators table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS indicators (
@@ -69,19 +76,35 @@ class DatabaseManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_date ON stock_daily(date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON indicators(ticker)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_indicators_date ON indicators(date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_ticker_metadata_ticker ON ticker_metadata(ticker)')
 
         self.conn.commit()
         self._migrate_tables()
 
     def _migrate_tables(self):
+        """Auto-migrate from old schema to new schema."""
         cursor = self.conn.cursor()
-        tables_to_drop = [row['name'] for row in cursor.fetchall()]
 
-        for table in tables_to_drop:
-            cursor.execute(f'DROP TABLE IF EXISTS {table}')
-            logger.info(f"Dropped deprecated table: {table}")
+        # Check if ticker_metadata table exists and has data
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ticker_metadata'")
+        if not cursor.fetchone():
+            logger.info("ticker_metadata table not found - will be created")
+            return
 
-        self.conn.commit()
+        # Check if we need to populate from existing stock_daily data
+        cursor.execute("SELECT COUNT(*) as count FROM ticker_metadata")
+        metadata_count = cursor.fetchone()['count']
+
+        if metadata_count == 0:
+            logger.info("Populating ticker_metadata from existing stock_daily data")
+            cursor.execute('''
+                INSERT OR REPLACE INTO ticker_metadata (ticker, last_fetched_date)
+                SELECT ticker, MAX(date) as last_fetched_date
+                FROM stock_daily
+                GROUP BY ticker
+            ''')
+            self.conn.commit()
+            logger.info(f"Populated metadata for {cursor.rowcount} tickers")
 
     def close(self):
         """Close database connection."""
@@ -118,8 +141,56 @@ class DatabaseManager:
         self.conn.commit()
         logger.info(f"Saved {len(df)} stock records for {ticker}")
 
+    def get_last_fetched_date(self, ticker: str) -> Optional[str]:
+        """Get the last fetched date for a ticker from ticker_metadata.
+
+        If no entry exists but stock_daily has data for the ticker,
+        auto-migrate by inserting the MAX(date) from stock_daily.
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            Last fetched date as YYYY-MM-DD string or None if not tracked
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT last_fetched_date FROM ticker_metadata WHERE ticker = ?
+        ''', (ticker,))
+        result = cursor.fetchone()
+        if result and result['last_fetched_date']:
+            return result['last_fetched_date']
+
+        # Auto-migrate: infer from stock_daily if available
+        cursor.execute('''
+            SELECT MAX(date) as latest_date FROM stock_daily WHERE ticker = ?
+        ''', (ticker,))
+        stock_result = cursor.fetchone()
+        if stock_result and stock_result['latest_date']:
+            # Insert into ticker_metadata for future use
+            self.update_last_fetched_date(ticker, stock_result['latest_date'])
+            logger.info(f"Auto-migrated last_fetched_date for {ticker}: {stock_result['latest_date']}")
+            return stock_result['latest_date']
+
+        return None
+
+    def update_last_fetched_date(self, ticker: str, date: str):
+        """Update the last fetched date for a ticker.
+
+        Args:
+            ticker: Stock ticker symbol
+            date: Date as YYYY-MM-DD string
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO ticker_metadata (ticker, last_fetched_date)
+            VALUES (?, ?)
+        ''', (ticker, date))
+        self.conn.commit()
+        logger.debug(f"Updated last_fetched_date for {ticker} to {date}")
+
     def get_latest_stock_date(self, ticker: str) -> Optional[str]:
-        """Get the latest date in cache for a ticker."""
+        """Get the latest date in cache for a ticker (from stock_daily)."""
         cursor = self.conn.cursor()
         cursor.execute('''
             SELECT MAX(date) as latest_date
@@ -220,8 +291,8 @@ class DatabaseManager:
             indicators.get('Volume_10d_Avg'),
             indicators.get('Volume_30d_Avg'),
             indicators.get('Volume_Ratio'),
-            indicators.get('Recent_High'),
-            indicators.get('Recent_Low'),
+            indicators.get('High_20d'),
+            indicators.get('Low_20d'),
             indicators.get('Current_Price')
         ))
         self.conn.commit()
@@ -278,4 +349,3 @@ class DatabaseManager:
         self.conn.commit()
         logger.info(f"Cleared old stock data: {stock_deleted} records")
         return stock_deleted
-cursor.execute('DROP TABLE IF EXISTS sentiment')

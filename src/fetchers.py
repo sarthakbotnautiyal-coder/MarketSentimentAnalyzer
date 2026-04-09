@@ -87,6 +87,9 @@ class StockDataFetcher:
     def fetch_delta(self, ticker: str, force_refresh: bool = False) -> Optional[pd.DataFrame]:
         """Fetch only new data since last cached date.
 
+        Uses per-ticker last_fetched_date tracking from ticker_metadata table.
+        If no entry exists or force_refresh, falls back to 1-year fetch.
+
         Args:
             ticker: Stock ticker symbol
             force_refresh: If True, fetch full history instead of delta
@@ -95,60 +98,90 @@ class StockDataFetcher:
             DataFrame with stock data (combined from cache + new) or None
         """
         if force_refresh or not self.db:
-            return self.fetch_data(ticker, force_refresh=force_refresh)
+            return self.fetch_data(ticker, period="1y", force_refresh=force_refresh)
 
-        latest_date = self.db.get_latest_stock_date(ticker)
-        if latest_date is None:
-            # No cache - do full fetch
-            logger.info(f"No cache for {ticker}, fetching full history")
-            return self.fetch_data(ticker, force_refresh=True)
+        # Get the last fetched date from ticker_metadata
+        last_fetched_date = self.db.get_last_fetched_date(ticker)
 
-        # Calculate delta start date
-        latest = datetime.strptime(latest_date, '%Y-%m-%d').date()
+        if last_fetched_date is None:
+            # No metadata entry - first run, fetch full year
+            logger.info(f"No ticker_metadata entry for {ticker}, fetching full year")
+            df = self.fetch_data(ticker, period="1y", force_refresh=True)
+            if df is not None and not df.empty:
+                # Update metadata with the latest date from fetched data
+                latest_date = df.index.max().strftime('%Y-%m-%d')
+                self.db.update_last_fetched_date(ticker, latest_date)
+            return df
+
+        # Parse last fetched date
+        try:
+            last_date = datetime.strptime(last_fetched_date, '%Y-%m-%d').date()
+        except ValueError:
+            logger.warning(f"Invalid date format in ticker_metadata for {ticker}: {last_fetched_date}")
+            return self.fetch_data(ticker, period="1y", force_refresh=True)
+
         today = datetime.now().date()
 
-        if latest >= today - timedelta(days=1):
-            # Cache is up to date, just return it
-            logger.info(f"Cache is current for {ticker}")
+        if last_date >= today - timedelta(days=1):
+            # Cache is up to date, just return cached data
+            logger.info(f"Cache is current for {ticker} (last: {last_fetched_date})")
             return self.db.get_stock_data(ticker)
 
-        # Need delta fetch - use full fetch but let yfinance handle it
-        # yfinance will return full period, we'll merge with cache
+        # Need to fetch delta from last_fetched_date + 1 day to today
+        # Add one day to avoid re-fetching the last known date
+        start_date = last_date + timedelta(days=1)
+        end_date = today
+
+        if start_date > end_date:
+            logger.info(f"Start date {start_date} is after end date {end_date}, nothing to fetch")
+            return self.db.get_stock_data(ticker)
+
+        logger.info(f"Fetching delta for {ticker}: {start_date} to {end_date}")
+
         try:
             yf_ticker = yf.Ticker(ticker)
-            # Fetch minimal period to get latest data
-            df = yf_ticker.history(period="5d", interval=self.interval)
+
+            # Fetch data for the specific date range
+            # yfinance supports start/end through history() parameters
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+
+            df = yf_ticker.history(start=start_str, end=end_str, interval=self.interval)
+
             if df.empty:
-                logger.warning(f"No data returned for {ticker}")
+                logger.warning(f"No new data returned for {ticker} in range {start_str} to {end_str}")
+                # Update metadata anyway? No, keep old date
                 return self.db.get_stock_data(ticker)
 
             # Clean up index
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
 
-            # Get cached data
+            logger.info(f"Delta fetch returned {len(df)} new rows for {ticker}")
+
+            # Get existing cached data
             cached_df = self.db.get_stock_data(ticker)
 
-            # Combine: use cached data plus any new rows from fetch
             if cached_df is not None and not cached_df.empty:
-                # Filter out dates we already have
-                new_dates = df.index.difference(cached_df.index)
-                if len(new_dates) > 0:
-                    new_df = df.loc[new_dates]
-                    combined = pd.concat([cached_df, new_df])
-                    combined = combined.sort_index()
-                    logger.info(f"Delta fetch added {len(new_df)} rows for {ticker}")
-                else:
-                    combined = cached_df
-                    logger.info(f"No new data for {ticker}")
+                # Combine cached data with new data
+                combined = pd.concat([cached_df, df])
+                combined = combined.sort_index()
+                # Remove duplicates, keeping the later (delta) values if overlap
+                combined = combined[~combined.index.duplicated(keep='last')]
+                logger.info(f"Combined cache ({len(cached_df)}) with delta ({len(df)}) = {len(combined)} rows")
             else:
                 combined = df
-                logger.info(f"Fetched {len(df)} rows for {ticker}")
+                logger.info(f"No cache found, using {len(df)} fetched rows")
 
             # Save combined data
             if self.db:
                 self.db.save_stock_data(ticker, combined)
 
+            # Update last_fetched_date to the max date in the combined dataset
+            latest_date_in_result = combined.index.max().strftime('%Y-%m-%d')
+            self.db.update_last_fetched_date(ticker, latest_date_in_result)
+
             return combined
+
         except Exception as e:
             logger.error(f"Error in delta fetch for {ticker}: {e}")
             # Fallback to cache
@@ -178,6 +211,9 @@ class StockDataFetcher:
             # Cache to database
             if self.db:
                 self.db.save_stock_data(ticker, df)
+                # Update last_fetched_date to latest
+                latest_date = df.index.max().strftime('%Y-%m-%d')
+                self.db.update_last_fetched_date(ticker, latest_date)
 
             return df
         except Exception as e:
