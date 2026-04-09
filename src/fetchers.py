@@ -229,6 +229,162 @@ class StockDataFetcher:
         # For subsequent runs, only fetch data since last known date
         return self.fetch_delta(ticker)
 
+    def get_implied_volatility(self, ticker: str) -> Optional[float]:
+        """Fetch implied volatility from ATM option in the options chain.
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            Implied volatility as a percentage (e.g., 25.5 for 25.5%) or None on failure
+        """
+        try:
+            yf_ticker = yf.Ticker(ticker)
+
+            # Get current price from recent history
+            hist = yf_ticker.history(period="5d")
+            if hist.empty:
+                logger.warning(f"No price data for IV calculation of {ticker}")
+                return None
+            current_price = hist['Close'].iloc[-1]
+
+            # Get available option expirations
+            expirations = yf_ticker.options
+            if not expirations or len(expirations) < 2:
+                logger.warning(f"No options data available for {ticker}")
+                return None
+
+            # Use second expiry (first may be too near-term / illiquid)
+            expiry = expirations[1]
+            opt_chain = yf_ticker.option_chain(expiry)
+
+            if opt_chain.calls.empty:
+                logger.warning(f"No call options for {ticker} at expiry {expiry}")
+                return None
+
+            # Find ATM call option (strike closest to current price)
+            calls = opt_chain.calls
+            atm_idx = (calls['strike'] - current_price).abs().idxmin()
+            atm_call = calls.loc[atm_idx]
+            iv = atm_call['impliedVolatility']
+
+            if pd.isna(iv):
+                logger.warning(f"IV is NaN for ATM call of {ticker}")
+                return None
+
+            # Return as percentage (e.g., 0.25 -> 25.0)
+            return round(float(iv) * 100, 2)
+
+        except Exception as e:
+            logger.warning(f"Error fetching implied volatility for {ticker}: {e}")
+            return None
+
+    def calculate_historical_volatility(self, df: pd.DataFrame, period: int = 20) -> Optional[float]:
+        """Calculate annualized historical volatility over a given period.
+
+        Args:
+            df: DataFrame with OHLCV data
+            period: Lookback period in trading days (default: 20)
+
+        Returns:
+            Annualized historical volatility as percentage, or None if insufficient data
+        """
+        if df.empty or len(df) < period + 1:
+            return None
+
+        close = df['Close'].astype(float)
+        log_returns = np.log(close / close.shift(1)).dropna()
+
+        if len(log_returns) < period:
+            return None
+
+        hv = log_returns.tail(period).std() * np.sqrt(252) * 100
+        return round(float(hv), 2)
+
+    def calculate_iv_rank(self, hv_52w_min: float, hv_52w_max: float,
+                          current_iv: float) -> Optional[float]:
+        """Calculate IV Rank - where current IV sits in the 52-week range.
+
+        IV Rank = ((Current IV - 52w Low) / (52w High - 52w Low)) * 100
+
+        Uses HV as a proxy when historical IV data is unavailable.
+
+        Args:
+            hv_52w_min: 52-week minimum historical volatility
+            hv_52w_max: 52-week maximum historical volatility
+            current_iv: Current implied volatility
+
+        Returns:
+            IV Rank as percentage (0-100), or None if range is zero
+        """
+        if hv_52w_max == hv_52w_min:
+            return None
+        iv_rank = ((current_iv - hv_52w_min) / (hv_52w_max - hv_52w_min)) * 100
+        return round(max(0.0, min(100.0, iv_rank)), 2)
+
+    def calculate_iv_percentile(self, hv_series: pd.Series, current_iv: float) -> Optional[float]:
+        """Calculate IV Percentile - percentage of days IV was below current level.
+
+        IV Percentile = (Number of days with IV < Current IV / Total days) * 100
+
+        Uses HV series as proxy when historical IV data is unavailable.
+
+        Args:
+            hv_series: Series of daily historical volatility values (252 trading days)
+            current_iv: Current implied volatility
+
+        Returns:
+            IV Percentile as percentage (0-100), or None if insufficient data
+        """
+        if hv_series.empty or hv_series.isna().all():
+            return None
+        valid = hv_series.dropna()
+        if len(valid) == 0:
+            return None
+        percentile = (valid < current_iv).sum() / len(valid) * 100
+        return round(float(percentile), 2)
+
+    def get_next_earnings_date(self, ticker: str) -> Optional[str]:
+        """Fetch next earnings date for a ticker from yfinance calendar.
+
+        Args:
+            ticker: Stock ticker symbol
+
+        Returns:
+            Earnings date as YYYY-MM-DD string, or None if unavailable
+        """
+        try:
+            yf_ticker = yf.Ticker(ticker)
+            cal = yf_ticker.calendar
+
+            if cal is None:
+                logger.debug(f"No calendar data for {ticker}")
+                return None
+
+            # yfinance calendar can be a dict or DataFrame depending on version
+            if isinstance(cal, dict):
+                earnings_date = cal.get('Earnings Date')
+                if earnings_date is not None:
+                    if isinstance(earnings_date, (list, np.ndarray)) and len(earnings_date) > 0:
+                        earnings_date = earnings_date[0]
+                    if isinstance(earnings_date, (datetime, pd.Timestamp)):
+                        return earnings_date.strftime('%Y-%m-%d')
+                    if pd.notna(earnings_date):
+                        return str(earnings_date)
+            elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                for idx, row in cal.iterrows():
+                    if 'Earnings' in str(idx):
+                        next_earnings = row.iloc[0]
+                        if pd.notna(next_earnings):
+                            if isinstance(next_earnings, (datetime, pd.Timestamp)):
+                                return next_earnings.strftime('%Y-%m-%d')
+                            return str(next_earnings)
+
+            return None
+        except Exception as e:
+            logger.warning(f"Error fetching earnings date for {ticker}: {e}")
+            return None
+
     def calculate_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Calculate technical indicators for latest data point.
 
@@ -338,6 +494,19 @@ class StockDataFetcher:
                 indicators['High_20d'] = round(float(data['High'].tail(20).max()), 2)
                 indicators['Low_20d'] = round(float(data['Low'].tail(20).min()), 2)
 
+            # --- Historical Volatility (20-day and 30-day, annualized) ---
+            log_returns = np.log(close / close.shift(1)).dropna()
+
+            if len(log_returns) >= 20:
+                hv_20d = log_returns.tail(20).std() * np.sqrt(252) * 100
+                indicators['Historical_Volatility_20d'] = round(float(hv_20d), 2)
+                # Keep legacy key for backward compatibility
+                indicators['Hist_Volatility_20d'] = round(float(hv_20d), 2)
+
+            if len(log_returns) >= 30:
+                hv_30d = log_returns.tail(30).std() * np.sqrt(252) * 100
+                indicators['Historical_Volatility_30d'] = round(float(hv_30d), 2)
+
             return indicators
 
         except Exception as e:
@@ -345,7 +514,7 @@ class StockDataFetcher:
             return {"error": str(e)}
 
     def get_indicators(self, ticker: str, force_refresh: bool = False) -> Dict[str, Any]:
-        """Fetch data and calculate indicators.
+        """Fetch data and calculate indicators including volatility and earnings.
 
         Args:
             ticker: Stock ticker symbol
@@ -362,4 +531,44 @@ class StockDataFetcher:
         indicators = self.calculate_indicators(df)
         indicators['Ticker'] = ticker
         indicators['Date'] = df.index[-1].strftime('%Y-%m-%d')
+
+        # --- Implied Volatility from options chain ---
+        iv = self.get_implied_volatility(ticker)
+        if iv is not None:
+            indicators['Implied_Volatility'] = iv
+
+        # --- IV Rank and IV Percentile (using HV as proxy) ---
+        # Calculate daily HV series for the full dataset
+        close = df['Close'].astype(float)
+        log_returns = np.log(close / close.shift(1)).dropna()
+
+        # Rolling 20-day HV for the entire series
+        if len(log_returns) >= 20:
+            hv_series = log_returns.rolling(20).std() * np.sqrt(252) * 100
+            hv_series = hv_series.dropna()
+
+            if len(hv_series) > 0:
+                # Use current IV if available, else current 20d HV
+                reference_vol = iv if iv is not None else indicators.get('Historical_Volatility_20d')
+
+                if reference_vol is not None:
+                    # 52-week range (last ~252 trading days)
+                    hv_52w = hv_series.tail(252)
+                    if len(hv_52w) > 1:
+                        hv_min = float(hv_52w.min())
+                        hv_max = float(hv_52w.max())
+                        iv_rank = self.calculate_iv_rank(hv_min, hv_max, reference_vol)
+                        if iv_rank is not None:
+                            indicators['IV_Rank'] = iv_rank
+
+                    # IV Percentile over available history
+                    iv_pct = self.calculate_iv_percentile(hv_series, reference_vol)
+                    if iv_pct is not None:
+                        indicators['IV_Percentile'] = iv_pct
+
+        # --- Next Earnings Date ---
+        earnings_date = self.get_next_earnings_date(ticker)
+        if earnings_date is not None:
+            indicators['Next_Earnings_Date'] = earnings_date
+
         return indicators
