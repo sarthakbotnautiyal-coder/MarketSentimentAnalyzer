@@ -76,6 +76,16 @@ def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
         date_str = latest_date.strftime('%Y-%m-%d') if hasattr(latest_date, 'strftime') else str(latest_date)
         indicators['Date'] = date_str
 
+        # Fetch earnings date
+        earnings_date = fetcher.get_earnings_date(ticker)
+        if earnings_date:
+            indicators['Earnings_Date'] = earnings_date
+
+        # Fetch earnings date
+        earnings_date = fetcher.get_earnings_date(ticker)
+        if earnings_date:
+            indicators['Earnings_Date'] = earnings_date
+
         # Save indicators to DB (overwrites previous entry for this ticker due to PRIMARY KEY)
         if db and "error" not in indicators:
             db.save_indicators(ticker, date_str, indicators)
@@ -191,6 +201,16 @@ def run_backfill(config: Config, db: DatabaseManager, tickers: list,
             latest_date = df.index[-1]
             date_str = latest_date.strftime('%Y-%m-%d')
             indicators['Date'] = date_str
+
+        # Fetch earnings date
+        earnings_date = fetcher.get_earnings_date(ticker)
+        if earnings_date:
+            indicators['Earnings_Date'] = earnings_date
+
+        # Fetch earnings date
+        earnings_date = fetcher.get_earnings_date(ticker)
+        if earnings_date:
+            indicators['Earnings_Date'] = earnings_date
 
             # Save indicators (overwrites previous due to PRIMARY KEY on ticker)
             if db and "error" not in indicators:

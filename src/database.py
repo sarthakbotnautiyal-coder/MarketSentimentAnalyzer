@@ -67,6 +67,12 @@ class DatabaseManager:
                 high_20d REAL,
                 low_20d REAL,
                 current_price REAL,
+                implied_volatility REAL,
+                historical_volatility_20d REAL,
+                historical_volatility_30d REAL,
+                iv_rank REAL,
+                iv_percentile REAL,
+                next_earnings_date TEXT,
                 PRIMARY KEY (date, ticker)
             )
         ''')
@@ -105,6 +111,26 @@ class DatabaseManager:
             ''')
             self.conn.commit()
             logger.info(f"Populated metadata for {cursor.rowcount} tickers")
+
+        # Migrate new indicator columns (added for volatility/earnings indicators)
+        cursor.execute("PRAGMA table_info(indicators)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+
+        new_columns = [
+            ('implied_volatility', 'REAL'),
+            ('historical_volatility_20d', 'REAL'),
+            ('historical_volatility_30d', 'REAL'),
+            ('iv_rank', 'REAL'),
+            ('iv_percentile', 'REAL'),
+            ('next_earnings_date', 'TEXT'),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in existing_columns:
+                cursor.execute(f'ALTER TABLE indicators ADD COLUMN {col_name} {col_type}')
+                logger.info(f"Added column {col_name} to indicators table")
+
+        self.conn.commit()
 
     def close(self):
         """Close database connection."""
@@ -273,8 +299,10 @@ class DatabaseManager:
             INSERT OR REPLACE INTO indicators
             (date, ticker, rsi, macd, macd_hist, sma20, sma50, sma200,
              bb_upper, bb_middle, bb_lower, atr,
-             vol_10d, vol_30d, vol_ratio, high_20d, low_20d, current_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             vol_10d, vol_30d, vol_ratio, high_20d, low_20d, current_price,
+             implied_volatility, historical_volatility_20d, historical_volatility_30d,
+             iv_rank, iv_percentile, next_earnings_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             date,
             ticker,
@@ -293,7 +321,13 @@ class DatabaseManager:
             indicators.get('Volume_Ratio'),
             indicators.get('High_20d'),
             indicators.get('Low_20d'),
-            indicators.get('Current_Price')
+            indicators.get('Current_Price'),
+            indicators.get('Implied_Volatility'),
+            indicators.get('Historical_Volatility_20d'),
+            indicators.get('Historical_Volatility_30d'),
+            indicators.get('IV_Rank'),
+            indicators.get('IV_Percentile'),
+            indicators.get('Next_Earnings_Date'),
         ))
         self.conn.commit()
         logger.debug(f"Inserted latest indicators for {ticker} on {date}")
