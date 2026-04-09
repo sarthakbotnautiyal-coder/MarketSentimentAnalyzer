@@ -1,94 +1,89 @@
-"""Data fetchers with caching for stock data."""
+"""
+Stock data fetcher using yfinance.
 
+Handles:
+- Fetching historical stock data via yfinance
+- Incremental/delta updates with database caching
+- Technical indicator calculations
+"""
+
+import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
-import structlog
+from typing import Optional, Dict, Any
+
+import numpy as np
 import pandas as pd
+import structlog
 import yfinance as yf
 
 logger = structlog.get_logger()
 
 
 class StockDataFetcher:
-    """Fetch and cache stock market data."""
+    """Fetches stock data from Yahoo Finance and calculates technical indicators."""
 
-    def __init__(self, period: str = "5d", interval: str = "1d",
-                 db_manager=None, ttl_days: int = 1):
-        """Initialize with caching database manager.
+    def __init__(self, period: str = "1y", interval: str = "1d",
+                 db_manager=None):
+        """Initialize fetcher.
 
         Args:
-            period: Default period to fetch (e.g., "5d", "1y")
-            interval: Data interval (e.g., "1d", "1h")
-            db_manager: Optional DatabaseManager instance for caching
-            ttl_days: Cache TTL for stock data
+            period: Default period for fetching data (1y, 6mo, 3mo, 1mo, 5d)
+            interval: Data interval (1d, 1wk, 1mo)
+            db_manager: Database manager for caching (optional)
         """
         self.period = period
         self.interval = interval
         self.db = db_manager
-        self.ttl_days = ttl_days
-
-    def _is_cache_usable(self, ticker: str, force_refresh: bool = False) -> bool:
-        """Check if we should use cached data."""
-        if force_refresh or not self.db:
-            return False
-        latest_date = self.db.get_latest_stock_date(ticker)
-        if latest_date is None:
-            return False
-        # Check if cache is fresh
-        cache_date = datetime.strptime(latest_date, '%Y-%m-%d').date()
-        today = datetime.now().date()
-        return (today - cache_date).days < self.ttl_days
 
     def fetch_data(self, ticker: str, period: str = None,
                    force_refresh: bool = False) -> Optional[pd.DataFrame]:
-        """Fetch stock data using yfinance with caching.
+        """Fetch historical data from Yahoo Finance.
 
         Args:
             ticker: Stock ticker symbol
-            period: Period to fetch (e.g., "5d", "1y")
-            force_refresh: If True, bypass cache and fetch fresh data
+            period: Time period (overrides default if provided)
+            force_refresh: If True, bypass database cache and fetch fresh
 
         Returns:
-            DataFrame with stock data or None on error
+            DataFrame with stock data or None on failure
         """
-        period = period or self.period
+        fetch_period = period or self.period
 
-        # Try to use cached data if valid and not forcing refresh
-        if self._is_cache_usable(ticker, force_refresh):
-            logger.info(f"Using cached stock data for {ticker}")
-            return self.db.get_stock_data(ticker)
+        # Check database cache first (unless forcing refresh)
+        if not force_refresh and self.db:
+            cached = self.db.get_stock_data(ticker)
+            if cached is not None and not cached.empty:
+                return cached
 
-        # Fetch fresh data
         try:
             yf_ticker = yf.Ticker(ticker)
-            df = yf_ticker.history(period=period, interval=self.interval)
+            df = yf_ticker.history(period=fetch_period, interval=self.interval)
+
             if df.empty:
                 logger.warning(f"No data returned for {ticker}")
                 return None
 
-            # Clean up index to be plain dates
+            # Clean up index
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
-
-            logger.info(f"Fetched {len(df)} rows of stock data for {ticker}")
 
             # Cache to database
             if self.db:
                 self.db.save_stock_data(ticker, df)
+                latest_date = df.index.max().strftime('%Y-%m-%d')
+                self.db.update_last_fetched_date(ticker, latest_date)
 
+            logger.info(f"Fetched {len(df)} rows for {ticker} ({fetch_period})")
             return df
+
         except Exception as e:
-            logger.error(f"Error fetching data for {ticker}: {e}")
-            # Fallback to stale cache if available
-            if self.db:
-                logger.info(f"Falling back to cached data for {ticker}")
-                return self.db.get_stock_data(ticker)
+            logger.error(f"Error fetching {ticker}: {e}")
             return None
 
     def fetch_delta(self, ticker: str, force_refresh: bool = False) -> Optional[pd.DataFrame]:
-        """Fetch only new data since last cached date.
+        """Fetch only new data since last fetch (delta/incremental).
 
-        Uses per-ticker last_fetched_date tracking from ticker_metadata table.
-        If no entry exists or force_refresh, falls back to 1-year fetch.
+        Uses the ticker_metadata table to determine last fetched date.
+        Combines cached data with newly fetched data.
 
         Args:
             ticker: Stock ticker symbol
@@ -172,20 +167,18 @@ class StockDataFetcher:
                 combined = df
                 logger.info(f"No cache found, using {len(df)} fetched rows")
 
-            # Save combined data
+            # Save combined data to database
             if self.db:
                 self.db.save_stock_data(ticker, combined)
-
-            # Update last_fetched_date to the max date in the combined dataset
-            latest_date_in_result = combined.index.max().strftime('%Y-%m-%d')
-            self.db.update_last_fetched_date(ticker, latest_date_in_result)
+                # Update metadata with latest date
+                latest_date = combined.index.max().strftime('%Y-%m-%d')
+                self.db.update_last_fetched_date(ticker, latest_date)
 
             return combined
 
         except Exception as e:
-            logger.error(f"Error in delta fetch for {ticker}: {e}")
-            # Fallback to cache
-            return self.db.get_stock_data(ticker)
+            logger.error(f"Error fetching delta for {ticker}: {e}")
+            return self.db.get_stock_data(ticker) if self.db else None
 
     def backfill_1year(self, ticker: str) -> Optional[pd.DataFrame]:
         """Backfill 1 year of historical data.
@@ -230,23 +223,26 @@ class StockDataFetcher:
             ticker: Stock ticker symbol
 
         Returns:
-            DataFrame with stock data (combined from cache + new) or None
+            DataFrame with all available data (cached + new)
         """
-        return self.fetch_delta(ticker, force_refresh=False)
+        # For the first run, there's no data - do a full 1y fetch
+        # For subsequent runs, only fetch data since last known date
+        return self.fetch_delta(ticker)
 
     def calculate_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate technical indicators for latest price data.
+        """Calculate technical indicators for latest data point.
+
+        Pure pandas implementation (no pandas_ta dependency).
 
         Args:
-            df: DataFrame with stock data
+            df: DataFrame with OHLCV data
 
         Returns:
-            Dictionary of calculated indicators for the latest day
+            Dictionary with calculated indicators
         """
         if df.empty:
             return {"error": "No data available"}
 
-        # Get latest price data
         try:
             indicators = {}
 
@@ -256,80 +252,91 @@ class StockDataFetcher:
             price_change = current_price - prev_price
             price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
 
-            indicators['Current_Price'] = round(current_price, 2)
-            indicators['Change'] = round(price_change, 2)
-            indicators['Change_Pct'] = round(price_change_pct, 2)
+            indicators['Current_Price'] = round(float(current_price), 2)
+            indicators['Change'] = round(float(price_change), 2)
+            indicators['Change_Pct'] = round(float(price_change_pct), 2)
 
             # Volume
             indicators['Current_Volume'] = int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0
 
-            # Calculate technical indicators if pandas_ta is available
-            try:
-                import pandas_ta as ta
+            data = df.copy()
+            close = data['Close'].astype(float)
 
-                # Make a copy to avoid SettingWithCopy warnings
-                data = df.copy()
+            # --- RSI (14-period) ---
+            if len(data) >= 14:
+                delta = close.diff()
+                gain = delta.clip(lower=0)
+                loss = -delta.clip(upper=0)
+                avg_gain = gain.rolling(window=14, min_periods=14).mean()
+                avg_loss = loss.rolling(window=14, min_periods=14).mean()
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+                val = rsi.iloc[-1]
+                if not np.isnan(val):
+                    indicators['RSI_14'] = round(float(val), 2)
 
-                # RSI
-                if len(data) >= 14:
-                    rsi = ta.rsi(data['Close'], length=14)
-                    if rsi is not None and len(rsi) > 0:
-                        indicators['RSI_14'] = float(rsi.iloc[-1])
+            # --- MACD (12, 26, 9) ---
+            if len(data) >= 26:
+                ema12 = close.ewm(span=12, adjust=False).mean()
+                ema26 = close.ewm(span=26, adjust=False).mean()
+                macd_line = ema12 - ema26
+                signal_line = macd_line.ewm(span=9, adjust=False).mean()
+                macd_hist = macd_line - signal_line
+                indicators['MACD'] = round(float(macd_line.iloc[-1]), 4)
+                indicators['MACD_Signal'] = round(float(signal_line.iloc[-1]), 4)
+                indicators['MACD_Hist'] = round(float(macd_hist.iloc[-1]), 4)
 
-                # MACD
-                if len(data) >= 26:
-                    macd = ta.macd(data['Close'])
-                    if macd is not None:
-                        indicators['MACD'] = float(macd['MACD_12_26_9'].iloc[-1])
-                        indicators['MACD_Signal'] = float(macd['MACDs_12_26_9'].iloc[-1])
-                        indicators['MACD_Hist'] = float(macd['MACDh_12_26_9'].iloc[-1])
+            # --- Simple Moving Averages ---
+            if len(data) >= 20:
+                indicators['SMA_20'] = round(float(close.tail(20).mean()), 2)
+            if len(data) >= 50:
+                indicators['SMA_50'] = round(float(close.tail(50).mean()), 2)
+            if len(data) >= 200:
+                indicators['SMA_200'] = round(float(close.tail(200).mean()), 2)
 
-                # Moving Averages
-                if len(data) >= 20:
-                    indicators['SMA_20'] = float(ta.sma(data['Close'], length=20).iloc[-1])
-                if len(data) >= 50:
-                    indicators['SMA_50'] = float(ta.sma(data['Close'], length=50).iloc[-1])
-                if len(data) >= 200:
-                    indicators['SMA_200'] = float(ta.sma(data['Close'], length=200).iloc[-1])
+            # --- EMA 5 ---
+            if len(data) >= 5:
+                ema5 = close.ewm(span=5, adjust=False).mean()
+                indicators['EMA_5'] = round(float(ema5.iloc[-1]), 2)
 
-                if len(data) >= 5:
-                    indicators['EMA_5'] = float(ta.ema(data['Close'], length=5).iloc[-1])
+            # --- Bollinger Bands (20-period, 2 std) ---
+            if len(data) >= 20:
+                sma20 = close.rolling(window=20).mean()
+                std20 = close.rolling(window=20).std()
+                indicators['BB_Upper'] = round(float((sma20 + 2 * std20).iloc[-1]), 2)
+                indicators['BB_Middle'] = round(float(sma20.iloc[-1]), 2)
+                indicators['BB_Lower'] = round(float((sma20 - 2 * std20).iloc[-1]), 2)
 
-                # Bollinger Bands
-                if len(data) >= 20:
-                    bb = ta.bbands(data['Close'], length=20, std=2.0)
-                    if bb is not None:
-                        indicators['BB_Upper'] = float(bb['BBU_20_2.0'].iloc[-1])
-                        indicators['BB_Middle'] = float(bb['BBM_20_2.0'].iloc[-1])
-                        indicators['BB_Lower'] = float(bb['BBL_20_2.0'].iloc[-1])
+            # --- ATR (14-period) ---
+            if len(data) >= 14 and all(c in data.columns for c in ['High', 'Low', 'Close']):
+                high = data['High'].astype(float)
+                low = data['Low'].astype(float)
+                prev_close = close.shift(1)
+                tr = pd.concat([
+                    high - low,
+                    (high - prev_close).abs(),
+                    (low - prev_close).abs()
+                ], axis=1).max(axis=1)
+                atr = tr.rolling(window=14, min_periods=14).mean()
+                val = atr.iloc[-1]
+                if not np.isnan(val):
+                    indicators['ATR_14'] = round(float(val), 4)
 
-                # ATR
-                if len(data) >= 14:
-                    atr = ta.atr(data['High'], data['Low'], data['Close'], length=14)
-                    if atr is not None and len(atr) > 0:
-                        indicators['ATR_14'] = float(atr.iloc[-1])
-
-                # Volume averages
-                if len(data) >= 10:
-                    vol_10d = data['Volume'].tail(10).mean()
-                    indicators['Volume_10d_Avg'] = int(vol_10d)
+            # --- Volume averages ---
+            if 'Volume' in data.columns and len(data) >= 10:
+                vol = data['Volume'].astype(float)
+                vol_10d = vol.tail(10).mean()
+                indicators['Volume_10d_Avg'] = int(vol_10d)
                 if len(data) >= 30:
-                    vol_30d = data['Volume'].tail(30).mean()
+                    vol_30d = vol.tail(30).mean()
                     indicators['Volume_30d_Avg'] = int(vol_30d)
                     if vol_30d > 0:
-                        indicators['Volume_Ratio'] = round(data['Volume'].iloc[-1] / vol_30d, 2)
+                        indicators['Volume_Ratio'] = round(float(vol.iloc[-1] / vol_30d), 2)
 
-                # High/Low over last 20 days
-                if len(data) >= 20:
-                    high_20d = data['High'].tail(20).max()
-                    low_20d = data['Low'].tail(20).min()
-                    indicators['High_20d'] = float(high_20d)
-                    indicators['Low_20d'] = float(low_20d)
-
-            except ImportError:
-                logger.debug("pandas_ta not available, using basic indicators")
-            except Exception as e:
-                logger.warning(f"Error calculating indicators: {e}")
+            # --- High/Low over last 20 days ---
+            if len(data) >= 20:
+                indicators['High_20d'] = round(float(data['High'].tail(20).max()), 2)
+                indicators['Low_20d'] = round(float(data['Low'].tail(20).min()), 2)
 
             return indicators
 
@@ -353,4 +360,6 @@ class StockDataFetcher:
             return {"error": f"No data available for {ticker}"}
 
         indicators = self.calculate_indicators(df)
+        indicators['Ticker'] = ticker
+        indicators['Date'] = df.index[-1].strftime('%Y-%m-%d')
         return indicators

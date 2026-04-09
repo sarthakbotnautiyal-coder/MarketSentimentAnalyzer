@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+"""
 Fetches stock data with incremental/delta updates, calculates technical indicators,
 and stores only the latest day's indicators in the database for each ticker.
 
@@ -10,7 +10,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import structlog
 
 # Setup logger early
@@ -95,6 +95,62 @@ def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
         return error_result
 
 
+def _compute_indicators_from_db(db: DatabaseManager, tickers: list) -> dict:
+    """Compute indicators from full DB history for all tickers.
+
+    Reads up to 400 days of stock data from the database to ensure sufficient
+    history for indicators like SMA_200, MACD, etc. Updates the indicators
+    table and the results dictionary.
+
+    Args:
+        db: Database manager instance
+        tickers: List of ticker symbols
+
+    Returns:
+        Dictionary mapping tickers to updated indicator results
+    """
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=400)).strftime('%Y-%m-%d')
+    calc_fetcher = StockDataFetcher()  # No db_manager needed for calculate_indicators
+
+    results = {}
+
+    for ticker in tickers:
+        try:
+            df = db.get_stock_data(ticker, start_date=start_date, end_date=end_date)
+            if df.empty:
+                logger.warning("No DB data for indicator computation", ticker=ticker)
+                results[ticker] = {"ticker": ticker, "indicators": {"error": "No data in DB"}}
+                continue
+
+            if len(df) < 200:
+                logger.warning("Insufficient data for full indicators", ticker=ticker,
+                               rows=len(df), need=200)
+
+            indicators = calc_fetcher.calculate_indicators(df)
+
+            if indicators.get('Current_Price') is None:
+                logger.error("Failed to compute indicators", ticker=ticker)
+                results[ticker] = {"ticker": ticker, "indicators": {"error": "Computation failed"}}
+                continue
+
+            latest_date_in_data = df.index.max().strftime('%Y-%m-%d')
+            indicators['Date'] = latest_date_in_data
+
+            db.insert_latest_indicator(ticker, latest_date_in_data, indicators)
+            logger.info("Computed indicators from DB", ticker=ticker,
+                        price=indicators.get('Current_Price'),
+                        rsi=indicators.get('RSI_14'))
+
+            results[ticker] = {"ticker": ticker, "indicators": indicators}
+
+        except Exception as e:
+            logger.error("Error computing indicators from DB", ticker=ticker, error=str(e))
+            results[ticker] = {"ticker": ticker, "indicators": {"error": str(e)}}
+
+    return results
+
+
 def run_backfill(config: Config, db: DatabaseManager, tickers: list,
                  force_refresh: bool = False) -> dict:
     """Run backfill mode: fetch 1 year of data for all tickers.
@@ -149,6 +205,15 @@ def run_backfill(config: Config, db: DatabaseManager, tickers: list,
             Display.print_indicators(ticker, error_result['indicators'])
             results[ticker] = error_result
 
+    # Compute indicators from full DB history (ensures SMA_200, MACD, etc. have enough data)
+    if db:
+        logger.info("Computing indicators from full DB history after backfill")
+        db.truncate_indicators()
+        results = _compute_indicators_from_db(db, tickers)
+        for ticker, result in results.items():
+            if "error" not in result.get("indicators", {}):
+                Display.print_indicators(ticker, result["indicators"])
+
     return results
 
 
@@ -176,6 +241,15 @@ def run_normal(config: Config, db: DatabaseManager, tickers: list,
         result = process_ticker(ticker, db, fetcher, force_refresh)
         results[ticker] = result
 
+    # Compute indicators from full DB history (ensures SMA_200, MACD, etc. have enough data)
+    if db:
+        logger.info("Computing indicators from full DB history")
+        db.truncate_indicators()
+        results = _compute_indicators_from_db(db, tickers)
+        for ticker, result in results.items():
+            if "error" not in result.get("indicators", {}):
+                Display.print_indicators(ticker, result["indicators"])
+
     return results
 
 
@@ -202,6 +276,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class Analyzer:
     """Main application class for stock technical analysis.
 
     This class provides backward compatibility and structure similar
@@ -284,6 +359,7 @@ def main():
             return 1
 
         # Initialize and run analyzer
+        analyzer = Analyzer(
             config,
             backfill=args.backfill is not None,
             force_refresh=args.force_refresh
