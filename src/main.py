@@ -76,13 +76,6 @@ def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
         date_str = latest_date.strftime('%Y-%m-%d') if hasattr(latest_date, 'strftime') else str(latest_date)
         indicators['Date'] = date_str
 
-        # Fetch earnings date
-        earnings_date = fetcher.get_earnings_date(ticker)
-        if earnings_date:
-            indicators['Earnings_Date'] = earnings_date
-
-        # Fetch earnings date
-        earnings_date = fetcher.get_earnings_date(ticker)
         if earnings_date:
             indicators['Earnings_Date'] = earnings_date
 
@@ -200,24 +193,17 @@ def run_backfill(config: Config, db: DatabaseManager, tickers: list,
             # Add date from latest data
             latest_date = df.index[-1]
             date_str = latest_date.strftime('%Y-%m-%d')
-            indicators['Date'] = date_str
-
-        # Fetch earnings date
-        earnings_date = fetcher.get_earnings_date(ticker)
-        if earnings_date:
-            indicators['Earnings_Date'] = earnings_date
-
-        # Fetch earnings date
-        earnings_date = fetcher.get_earnings_date(ticker)
-        if earnings_date:
-            indicators['Earnings_Date'] = earnings_date
-
-            # Save indicators (overwrites previous due to PRIMARY KEY on ticker)
-            if db and "error" not in indicators:
-                db.save_indicators(ticker, date_str, indicators)
-
-            Display.print_indicators(ticker, indicators)
-            results[ticker] = {"ticker": ticker, "indicators": indicators}
+            # Fetch earnings date
+            earnings_date = fetcher.get_next_earnings_date(ticker)
+            if earnings_date:
+                indicators['Earnings_Date'] = earnings_date
+    
+                # Save indicators (overwrites previous due to PRIMARY KEY on ticker)
+                if db and "error" not in indicators:
+                    db.save_indicators(ticker, date_str, indicators)
+    
+                Display.print_indicators(ticker, indicators)
+                results[ticker] = {"ticker": ticker, "indicators": indicators}
 
         except Exception as e:
             logger.error("Error backfilling ticker", ticker=ticker, error=str(e))
@@ -348,9 +334,6 @@ class Analyzer:
         # Display summary
         Display.print_summary(results)
 
-        # Clean up old stock data (keep last 30 days to manage DB size)
-        if self.db:
-            self.db.clear_old_stock_data(days=30)
 
         return results
 
