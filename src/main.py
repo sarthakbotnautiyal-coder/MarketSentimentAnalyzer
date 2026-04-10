@@ -69,7 +69,7 @@ def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
             }
 
         # Calculate indicators for latest day
-        indicators = fetcher.calculate_indicators(df)
+        indicators = fetcher.get_indicators(ticker)
 
         # Add date from latest data
         latest_date = df.index[-1]
@@ -130,7 +130,7 @@ def _compute_indicators_from_db(db: DatabaseManager, tickers: list) -> dict:
                 logger.warning("Insufficient data for full indicators", ticker=ticker,
                                rows=len(df), need=200)
 
-            indicators = calc_fetcher.calculate_indicators(df)
+            indicators = calc_fetcher.get_indicators(ticker)
 
             if indicators.get('Current_Price') is None:
                 logger.error("Failed to compute indicators", ticker=ticker)
@@ -188,7 +188,7 @@ def run_backfill(config: Config, db: DatabaseManager, tickers: list,
                 continue
 
             # Calculate indicators for latest day
-            indicators = fetcher.calculate_indicators(df)
+            indicators = fetcher.get_indicators(ticker)
 
             # Add date from latest data
             latest_date = df.index[-1]
