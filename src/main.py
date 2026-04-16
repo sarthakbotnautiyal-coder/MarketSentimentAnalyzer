@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import sys
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 import structlog
@@ -35,6 +36,7 @@ from src.config import Config, DatabaseConfig
 from src.database import DatabaseManager
 from src.fetchers import StockDataFetcher
 from src.display import Display
+from src.options_engine import OptionsSignalEngine, SignalType
 
 logger = structlog.get_logger()
 
@@ -154,6 +156,115 @@ def _compute_indicators_from_db(db: DatabaseManager, tickers: list) -> dict:
             results[ticker] = {"ticker": ticker, "indicators": {"error": str(e)}}
 
     return results
+
+
+def _save_signals_to_json(signals_obj, date_str: str, base_dir: Path = None) -> Path:
+    """Save ticker signals to JSON file.
+
+    Args:
+        signals_obj: TickerSignals object
+        date_str: Date string for directory structure
+        base_dir: Base directory for signals (defaults to data/signals)
+
+    Returns:
+        Path to the saved JSON file
+    """
+    if base_dir is None:
+        base_dir = Path("data/signals")
+    signals_dir = base_dir / date_str
+    signals_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = signals_dir / f"{signals_obj.ticker}.json"
+    with open(output_path, "w") as f:
+        json.dump(signals_obj.to_dict(), f, indent=2)
+
+    logger.info("Saved signals", ticker=signals_obj.ticker, path=str(output_path))
+    return output_path
+
+
+def _print_signal_summary(signals_obj) -> None:
+    """Print a concise signal summary to stdout.
+
+    Args:
+        signals_obj: TickerSignals object
+    """
+    ticker = signals_obj.ticker
+    price = signals_obj.current_price
+    print(f"\n📊 {ticker} Options Signals (${price:.2f})")
+
+    for signal in signals_obj.signals:
+        emoji = {
+            "SELL_PUTS": "🟢",
+            "SELL_CALLS": "🔴",
+            "BUY_LEAPS": "🟡",
+            "HOLD": "⚪",
+            "NEUTRAL": "⚪",
+        }.get(signal.signal_type.value, "⚪")
+
+        conf_emoji = {
+            "HIGH": "■■■",
+            "MEDIUM": "■■○",
+            "LOW": "■○○",
+            "NONE": "○○○",
+        }.get(signal.confidence.value, "○○○")
+
+        print(f"  {emoji} {signal.signal_type.value} [{conf_emoji}]")
+
+        # Print key reasoning points (first 2)
+        for reason in signal.reasoning[:2]:
+            print(f"      • {reason}")
+
+        if signal.target_price:
+            print(f"      • Target: ${signal.target_price:.2f} | Stop: ${signal.stop_loss:.2f}")
+
+
+def _generate_and_save_signals(results: dict, date_str: str, engine: OptionsSignalEngine) -> dict:
+    """Generate signals for all tickers with valid indicators and save to JSON.
+
+    Args:
+        results: Dictionary of {ticker: {"ticker": ..., "indicators": ...}}
+        date_str: Date string for directory structure
+        engine: OptionsSignalEngine instance
+
+    Returns:
+        Dictionary of {ticker: TickerSignals}
+    """
+    signals_results = {}
+    all_signals = []
+
+    for ticker, result in results.items():
+        indicators = result.get("indicators", {})
+        if "error" in indicators:
+            logger.debug("Skipping signal generation for error ticker", ticker=ticker)
+            continue
+
+        try:
+            ticker_signals = engine.generate_signals_for_ticker(ticker, indicators)
+            signals_results[ticker] = ticker_signals
+            all_signals.append(ticker_signals.to_dict())
+
+            # Save per-ticker JSON
+            _save_signals_to_json(ticker_signals, date_str)
+
+            # Print signal summary
+            _print_signal_summary(ticker_signals)
+
+        except Exception as e:
+            logger.error("Error generating signals", ticker=ticker, error=str(e))
+
+    # Save summary JSON
+    if all_signals:
+        summary_path = Path("data/signals") / date_str / "summary.json"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(summary_path, "w") as f:
+            json.dump({
+                "date": date_str,
+                "generated_at": datetime.now().isoformat(),
+                "tickers": all_signals
+            }, f, indent=2)
+        logger.info("Saved signals summary", path=str(summary_path))
+
+    return signals_results
 
 
 def run_backfill(config: Config, db: DatabaseManager, tickers: list,
@@ -309,6 +420,9 @@ class Analyzer:
         if config.database:
             self.db = DatabaseManager(config.database.path)
 
+        # Initialize signal engine
+        self.signal_engine = OptionsSignalEngine()
+
         logger.info(
             "Analyzer initialized",
             tickers_count=len(config.tickers),
@@ -323,6 +437,7 @@ class Analyzer:
             Dictionary mapping tickers to their results
         """
         tickers = self.config.tickers
+        date_str = datetime.now().strftime('%Y-%m-%d')
 
         if self.backfill:
             results = run_backfill(
@@ -336,6 +451,12 @@ class Analyzer:
         # Display summary
         Display.print_summary(results)
 
+        # Generate and save signals for all tickers
+        print("\n" + "="*60)
+        print("OPTIONS SIGNALS")
+        print("="*60)
+        _generate_and_save_signals(results, date_str, self.signal_engine)
+        print("="*60 + "\n")
 
         return results
 
