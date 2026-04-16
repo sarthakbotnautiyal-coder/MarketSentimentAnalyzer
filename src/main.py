@@ -76,6 +76,8 @@ def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
         date_str = latest_date.strftime('%Y-%m-%d') if hasattr(latest_date, 'strftime') else str(latest_date)
         indicators['Date'] = date_str
 
+        # Fetch earnings date
+        earnings_date = fetcher.get_next_earnings_date(ticker)
         if earnings_date:
             indicators['Earnings_Date'] = earnings_date
 
