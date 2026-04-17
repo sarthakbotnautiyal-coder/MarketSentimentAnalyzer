@@ -35,6 +35,7 @@ LLM_OUTPUT_SCHEMA = {
     "signal_decision": "SELL_PUTS | SELL_CALLS | BUY_LEAPS | NO_TRADE",
     "confidence": 0.87,
     "confidence_level": "HIGH | MEDIUM | LOW",
+    "reasoning_summary": "Brief 1-2 sentence explanation of why this signal was chosen or why no trade is recommended.",
     "top_3_reasons": ["reason1", "reason2", "reason3"],
     "strike_recommendation": {
         "strike": 5100,
@@ -549,6 +550,11 @@ class Stage1HardFilters:
                 self.logger.info(f"{label} candidate found", confidence=result.confidence.value)
                 candidates.append(result)
 
+        if not candidates:
+            self.logger.warning(
+                "Stage 1 rejected ticker — no signal type passed filters",
+                ticker=indicators.get("Ticker", "unknown"),
+            )
         return candidates
 
 
@@ -690,6 +696,7 @@ class Stage2LLM:
             "signal_type": signal_type.value,
             "confidence": raw.get("confidence", 0.5),
             "confidence_level": conf_level.value,
+            "reasoning_summary": raw.get("reasoning_summary", ""),
             "top_3_reasons": raw.get("top_3_reasons", [])[:3],
             "strike_recommendation": {
                 "strike": strike,
@@ -854,6 +861,8 @@ class HybridSignalPipeline:
             final_signal = {
                 "signal_type": sig["signal_type"],
                 "confidence": sig["confidence_level"],
+                "confidence_score": sig["confidence"],
+                "reasoning_summary": sig.get("reasoning_summary", ""),
                 "reasoning": sig["top_3_reasons"],
                 "current_price": indicators.get("Current_Price"),
                 "target_price": sig["strike_recommendation"]["strike"],

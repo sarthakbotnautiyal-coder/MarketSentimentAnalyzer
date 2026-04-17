@@ -15,11 +15,14 @@ system_prompt: |
   Rules:
   1. Output valid JSON only — no markdown, no explanation outside JSON
   2. Choose AT MOST one signal type (the strongest)
-  3. Set confidence_level based on indicator quality and number of passing filters
-  4. Strike must be ATM or slightly OTM; delta ~0.25 for puts, ~0.25 for calls
-  5. Stop loss must be ATR-adjusted — never wider than 2x ATR
-  6. Risk flags: flag high IV Rank (>80), nearby earnings (<30d), low liquidity
-  7. If no signal is strong enough, output NO_TRADE
+  3. confidence MUST be a float between 0.0 and 1.0 — how confident you are in this decision
+  4. Set confidence_level based on indicator quality and number of passing filters
+  5. Strike must be ATM or slightly OTM; delta ~0.25 for puts, ~0.25 for calls
+  6. Stop loss must be ATR-adjusted — never wider than 2x ATR
+  7. Risk flags: flag high IV Rank (>80), nearby earnings (<30d), low liquidity
+  8. If no signal is strong enough, output NO_TRADE
+  9. reasoning_summary MUST be a brief 1-2 sentence plain-English explanation of why this
+     signal was chosen (or why no trade is recommended) — write it for a human trader
 
 user_prompt_template: |
   TICKER: {ticker}
@@ -42,3 +45,6 @@ user_prompt_template: |
   {stage1_candidates}
 
   Based on the above data, produce your JSON signal decision.
+
+  IMPORTANT: confidence must be a float between 0.0 (no confidence) and 1.0 (maximum confidence).
+  Also provide a reasoning_summary (1-2 sentences) explaining the recommendation.
