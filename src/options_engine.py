@@ -19,6 +19,7 @@ class SignalType(Enum):
     HOLD = "HOLD"
     NEUTRAL = "NEUTRAL"
     NO_CANDIDATE = "NO_CANDIDATE"
+    NO_TRADE = "NO_TRADE"
 
 
 class ConfidenceLevel(Enum):
@@ -27,6 +28,30 @@ class ConfidenceLevel(Enum):
     MEDIUM = "MEDIUM"
     LOW = "LOW"
     NONE = "NONE"
+
+
+# JSON output schema required by Stage 2 LLM — gemma4:e4b via Ollama
+LLM_OUTPUT_SCHEMA = {
+    "signal_decision": "SELL_PUTS | SELL_CALLS | BUY_LEAPS | NO_TRADE",
+    "confidence": 0.87,
+    "confidence_level": "HIGH | MEDIUM | LOW",
+    "top_3_reasons": ["reason1", "reason2", "reason3"],
+    "strike_recommendation": {
+        "strike": 5100,
+        "delta_estimate": 0.25,
+        "distance_pct": 2.2
+    },
+    "expiry_recommendation": {
+        "target_expiry": "2026-04-30",
+        "dte": 14
+    },
+    "stop_loss": {
+        "level": 4998.00,
+        "distance_pct": 4.23,
+        "distance_atr": 1.0
+    },
+    "risk_flags": ["flag1", "flag2"]
+}
 
 
 @dataclass
@@ -506,50 +531,252 @@ class Stage1HardFilters:
             filter_results=result.filter_results if isinstance(result, NoCandidate) else []
         )
 
-# Stage 2: LLM Stub — placeholder for future LLM-based decision making
+    def evaluate_all(self, indicators: dict, earnings_date: Optional[str] = None) -> List[CandidateSignal]:
+        """
+        Evaluate ALL signal types and return all passing candidates.
+        Used by Stage 2 to make one LLM call per ticker with all candidates.
+        """
+        self.logger.info("Evaluating all Stage 1 signal types", ticker=indicators.get("Ticker", "unknown"))
+        candidates: List[CandidateSignal] = []
+
+        for eval_fn, label in [
+            (self.evaluate_sell_puts, "SELL_PUTS"),
+            (self.evaluate_sell_calls, "SELL_CALLS"),
+            (self.evaluate_buy_leaps, "BUY_LEAPS"),
+        ]:
+            result = eval_fn(indicators, earnings_date)
+            if isinstance(result, CandidateSignal):
+                self.logger.info(f"{label} candidate found", confidence=result.confidence.value)
+                candidates.append(result)
+
+        return candidates
+
+
+# ============================================================================
+# Stage 2: LLM-based signal decision — gemma4:e4b via Ollama
 # ============================================================================
 
 
 class Stage2LLM:
     """
-    Stage 2 LLM-based signal refinement (stub implementation).
+    Stage 2 LLM-based signal decision using gemma4:e4b via Ollama.
 
-    In production, this would call an LLM API to:
-    - Validate the Stage 1 candidate against news/sentiment
-    - Check for upcoming catalysts
-    - Make a final GO/NO_GO decision
+    One LLM call per ticker (not per signal type) — aggregates all Stage 1
+    passing candidates and produces a final GO/NO_TRADE decision with full
+    strike, expiry, and stop-loss recommendations.
 
-    For now: always returns NO_CANDIDATE to keep pipeline intact.
+    Graceful degradation: if Ollama is unavailable or times out, emits
+    NO_TRADE for that ticker and logs a warning. The pipeline never crashes.
     """
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4"):
+    def __init__(self, config_path: str = "config/llm_config.yaml"):
         self.logger = logger.bind(component="Stage2LLM")
-        self.api_key = api_key
-        self.model = model
 
-    def process_candidate(
-        self, ticker: str, indicators: dict, stage1_result: CandidateSignal
-    ) -> dict:
-        """
-        Process a Stage 1 candidate and return Stage 2 decision.
+        # Load LLM config
+        config_file = Path(__file__).parent.parent / config_path
+        with open(config_file) as f:
+            self.cfg = yaml.safe_load(f)
 
-        Returns dict with:
-        - signal_decision: "NO_CANDIDATE" | "GO" | "NO_GO"
-        - reason: str
-        - confidence_override: ConfidenceLevel (optional)
-        """
-        self.logger.info(
-            "Stage 2 LLM called (stub)",
+        # Load prompt templates
+        prompts_file = Path(__file__).parent.parent / "config" / "llm_prompts.yaml"
+        with open(prompts_file) as f:
+            self.prompts = yaml.safe_load(f)
+
+        # Lazily import LLMClient to avoid circular imports
+        from src.llm_client import LLMClient
+        self.llm = LLMClient(config_path=config_path, logger=self.logger)
+
+    def _format_candidates(self, candidates: List[CandidateSignal], indicators: dict) -> str:
+        """Format Stage 1 candidates for the user prompt template."""
+        def _fmt(v, fmt):
+            return format(v, fmt) if v is not None else "N/A"
+
+        lines = []
+        price = indicators.get("Current_Price", 0)
+
+        for c in candidates:
+            filter_detail = "; ".join(
+                f"{r.condition}={'PASS' if r.passed else 'FAIL'}({r.reason})"
+                for r in c.filter_results
+            )
+            lines.append(
+                f"- [{c.signal_type.value}] confidence={c.confidence.value}\n"
+                f"  Reasons: {', '.join(c.reasons)}\n"
+                f"  Filters: {filter_detail}\n"
+                f"  Price=${_fmt(c.current_price, '.2f')}, Target=${_fmt(c.target_price, '.2f')}, "
+                f"Stop=${_fmt(c.stop_loss, '.2f')}, Expiry={c.expiry or 'N/A'}"
+            )
+
+        return "\n".join(lines) if lines else "(none)"
+
+    def _format_indicators(self, indicators: dict) -> dict:
+        """Format indicator values for the prompt template."""
+        return {
+            "ticker": indicators.get("Ticker", "UNKNOWN"),
+            "price": indicators.get("Current_Price", 0),
+            "rsi": f"{indicators.get('RSI_14', 'N/A'):.1f}" if isinstance(indicators.get("RSI_14"), (int, float)) else "N/A",
+            "iv_rank": f"{indicators.get('IV_Rank', 'N/A'):.1f}" if isinstance(indicators.get("IV_Rank"), (int, float)) else "N/A",
+            "macd": f"{indicators.get('MACD', 'N/A'):.4f}" if isinstance(indicators.get("MACD"), (int, float)) else "N/A",
+            "macd_signal": f"{indicators.get('MACD_Signal', 'N/A'):.4f}" if isinstance(indicators.get("MACD_Signal"), (int, float)) else "N/A",
+            "sma20": f"{indicators.get('SMA_20', 'N/A'):.2f}" if isinstance(indicators.get("SMA_20"), (int, float)) else "N/A",
+            "sma200": f"{indicators.get('SMA_200', 'N/A'):.2f}" if isinstance(indicators.get("SMA_200"), (int, float)) else "N/A",
+            "bb_upper": f"{indicators.get('BB_Upper', 'N/A'):.2f}" if isinstance(indicators.get("BB_Upper"), (int, float)) else "N/A",
+            "bb_lower": f"{indicators.get('BB_Lower', 'N/A'):.2f}" if isinstance(indicators.get("BB_Lower"), (int, float)) else "N/A",
+            "atr": f"{indicators.get('ATR_14', 'N/A'):.2f}" if isinstance(indicators.get("ATR_14"), (int, float)) else "N/A",
+            "vol_ratio": f"{indicators.get('Volume_Ratio', 'N/A'):.2f}" if isinstance(indicators.get("Volume_Ratio"), (int, float)) else "N/A",
+        }
+
+    def _build_user_prompt(self, ticker: str, indicators: dict, candidates: List[CandidateSignal]) -> str:
+        """Build the user prompt from the template and runtime data."""
+        tmpl = self.prompts["user_prompt_template"]
+        ind = self._format_indicators(indicators)
+        cand_block = self._format_candidates(candidates, indicators)
+
+        return tmpl.format(
             ticker=ticker,
-            stage1_signal=stage1_result.signal_type.value
+            price=ind["price"],
+            rsi=ind["rsi"],
+            iv_rank=ind["iv_rank"],
+            macd=ind["macd"],
+            macd_signal=ind["macd_signal"],
+            sma20=ind["sma20"],
+            sma200=ind["sma200"],
+            bb_upper=ind["bb_upper"],
+            bb_lower=ind["bb_lower"],
+            atr=ind["atr"],
+            vol_ratio=ind["vol_ratio"],
+            stage1_candidates=cand_block,
         )
 
-        # Stub: reject all candidates until Stage 2 is implemented
-        return {
-            "signal_decision": "NO_CANDIDATE",
-            "reason": "Stage 2 not yet implemented — Stage 1 candidates are informational only",
-            "stage1_candidate": stage1_result.signal_type.value,
+    def _parse_llm_output(self, raw: dict, price: float, atr: Optional[float]) -> dict:
+        """
+        Parse LLM JSON output into a clean stage2 result dict.
+        Applies ATR-adjusted stop-loss and maps signal_decision to SignalType.
+        """
+        signal_decision = raw.get("signal_decision", "NO_TRADE")
+
+        # Map to SignalType
+        decision_map = {
+            "SELL_PUTS": SignalType.SELL_PUTS,
+            "SELL_CALLS": SignalType.SELL_CALLS,
+            "BUY_LEAPS": SignalType.BUY_LEAPS,
+            "NO_TRADE": SignalType.NO_TRADE,
         }
+        signal_type = decision_map.get(signal_decision, SignalType.NO_TRADE)
+
+        # ATR-adjusted stop loss
+        stop_loss_raw = raw.get("stop_loss", {})
+        stop_level = stop_loss_raw.get("level")
+        if stop_level is None and atr and price:
+            stop_level = round(price - (2 * atr), 2)  # default: 2x ATR below price
+
+        # Confidence level
+        conf_level_map = {"HIGH": ConfidenceLevel.HIGH, "MEDIUM": ConfidenceLevel.MEDIUM, "LOW": ConfidenceLevel.LOW}
+        conf_level = conf_level_map.get(raw.get("confidence_level", ""), ConfidenceLevel.MEDIUM)
+
+        # Strike recommendation
+        strike_rec = raw.get("strike_recommendation", {})
+        strike = strike_rec.get("strike") or round(price)
+        delta_est = strike_rec.get("delta_estimate", 0.25)
+        distance_pct = strike_rec.get("distance_pct", 0.0)
+
+        # Expiry recommendation
+        expiry_rec = raw.get("expiry_recommendation", {})
+        target_expiry = expiry_rec.get("target_expiry")
+        dte = expiry_rec.get("dte", 14)
+
+        return {
+            "signal_decision": signal_decision,
+            "signal_type": signal_type.value,
+            "confidence": raw.get("confidence", 0.5),
+            "confidence_level": conf_level.value,
+            "top_3_reasons": raw.get("top_3_reasons", [])[:3],
+            "strike_recommendation": {
+                "strike": strike,
+                "delta_estimate": delta_est,
+                "distance_pct": round(distance_pct, 2),
+            },
+            "expiry_recommendation": {
+                "target_expiry": target_expiry,
+                "dte": dte,
+            },
+            "stop_loss": {
+                "level": stop_level,
+                "distance_pct": stop_loss_raw.get("distance_pct", 0.0),
+                "distance_atr": stop_loss_raw.get("distance_atr", 0.0),
+            },
+            "risk_flags": raw.get("risk_flags", []),
+        }
+
+    def process_candidates(
+        self, ticker: str, indicators: dict, candidates: List[CandidateSignal]
+    ) -> dict:
+        """
+        Process all Stage 1 candidates for a ticker with one LLM call.
+
+        Args:
+            ticker: Stock ticker symbol.
+            indicators: Dict of technical indicators.
+            candidates: List of CandidateSignal objects that passed Stage 1.
+
+        Returns:
+            Stage 2 result dict with final signal decision, or NO_TRADE on failure.
+            Never raises — graceful degradation always returns a valid dict.
+        """
+        self.logger.info(
+            "Stage 2 LLM called",
+            ticker=ticker,
+            candidate_count=len(candidates),
+            signal_types=[c.signal_type.value for c in candidates],
+        )
+
+        if not candidates:
+            return {
+                "signal_decision": "NO_TRADE",
+                "reason": "No Stage 1 candidates to evaluate",
+                "stage1_candidates": [],
+                "llm_raw": None,
+            }
+
+        # Build prompts
+        system_prompt = self.prompts["system_prompt"]
+        user_prompt = self._build_user_prompt(ticker, indicators, candidates)
+
+        # Call LLM
+        price = indicators.get("Current_Price", 0)
+        atr = indicators.get("ATR_14")
+
+        raw = self.llm.generate_json(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            schema=LLM_OUTPUT_SCHEMA,
+        )
+
+        if raw is None:
+            # Graceful degradation — Ollama unavailable/timeout
+            self.logger.warning(
+                "LLM call failed — emitting NO_TRADE, pipeline continues",
+                ticker=ticker,
+            )
+            return {
+                "signal_decision": "NO_TRADE",
+                "reason": "LLM unavailable or timeout — graceful degradation",
+                "stage1_candidates": [c.signal_type.value for c in candidates],
+                "llm_raw": None,
+            }
+
+        # Parse and return
+        result = self._parse_llm_output(raw, price, atr)
+        result["stage1_candidates"] = [c.signal_type.value for c in candidates]
+        result["llm_raw"] = raw
+
+        self.logger.info(
+            "Stage 2 LLM decision",
+            ticker=ticker,
+            signal_decision=result["signal_decision"],
+            confidence=result["confidence"],
+        )
+        return result
 
 
 # ============================================================================
@@ -559,11 +786,12 @@ class Stage2LLM:
 
 class HybridSignalPipeline:
     """
-    Hybrid pipeline: Stage1HardFilters → [Stage2LLM] → Output.
+    Hybrid pipeline: Stage1HardFilters → Stage2LLM → Output.
 
     Single interface: generate_signals(ticker, indicators) -> dict
 
-    Stage 2 is stubbed — candidates pass through but are flagged as pending.
+    Stage 2 aggregates ALL Stage 1 passing candidates (one LLM call per ticker)
+    and produces a definitive final signal.
     """
 
     def __init__(self, config_path: str = None):
@@ -587,22 +815,25 @@ class HybridSignalPipeline:
         """
         self.logger.info("Pipeline invoked", ticker=ticker)
 
-        # Stage 1: Hard Filters
-        stage1_result = self.stage1.evaluate(indicators, earnings_date)
+        # Stage 1: collect ALL passing candidates
+        stage1_candidates = self.stage1.evaluate_all(indicators, earnings_date)
 
-        # If no candidate, return early
-        if isinstance(stage1_result, NoCandidate):
+        # If no candidates, return early
+        if not stage1_candidates:
+            # Run evaluate() once more to get NoCandidate info
+            single_result = self.stage1.evaluate(indicators, earnings_date)
             return {
                 "ticker": ticker,
                 "timestamp": datetime.now().isoformat(),
-                "pipeline": "hybrid_v1",
+                "pipeline": "hybrid_v2",
                 "stage1": {
                     "passed": False,
-                    "reason": stage1_result.reason,
+                    "reason": single_result.reason,
                     "filter_results": [
                         {"condition": r.condition, "passed": r.passed, "reason": r.reason}
-                        for r in stage1_result.filter_results
-                    ]
+                        for r in single_result.filter_results
+                    ],
+                    "all_candidates": [],
                 },
                 "stage2": {
                     "skipped": True,
@@ -612,44 +843,56 @@ class HybridSignalPipeline:
                 "indicators_summary": self._summarize_indicators(indicators)
             }
 
-        # Stage 1 passed — send to Stage 2 stub
-        stage2_result = self.stage2.process_candidate(ticker, indicators, stage1_result)
+        # Stage 2: one LLM call with ALL candidates
+        stage2_result = self.stage2.process_candidates(ticker, indicators, stage1_candidates)
 
-        # Build final signal
-        if stage2_result.get("signal_decision") == "NO_CANDIDATE":
-            # Stage 2 rejected or stub rejected
+        # Build final signal from Stage 2 output
+        if stage2_result.get("signal_decision") in ("NO_TRADE", "NO_CANDIDATE"):
             final_signal = None
         else:
-            # Stage 2 approved — build full signal
+            sig = stage2_result
             final_signal = {
-                "signal_type": stage1_result.signal_type.value,
-                "confidence": stage2_result.get("confidence_override", stage1_result.confidence.value),
-                "reasoning": stage1_result.reasons,
-                "current_price": stage1_result.current_price,
-                "target_price": stage1_result.target_price,
-                "stop_loss": stage1_result.stop_loss,
-                "expiry": stage1_result.expiry
+                "signal_type": sig["signal_type"],
+                "confidence": sig["confidence_level"],
+                "reasoning": sig["top_3_reasons"],
+                "current_price": indicators.get("Current_Price"),
+                "target_price": sig["strike_recommendation"]["strike"],
+                "stop_loss": sig["stop_loss"]["level"],
+                "expiry": sig["expiry_recommendation"]["target_expiry"],
+                "risk_flags": sig["risk_flags"],
             }
 
         return {
             "ticker": ticker,
             "timestamp": datetime.now().isoformat(),
-            "pipeline": "hybrid_v1",
+            "pipeline": "hybrid_v2",
             "stage1": {
                 "passed": True,
-                "signal_type": stage1_result.signal_type.value,
-                "confidence": stage1_result.confidence.value,
-                "reasons": stage1_result.reasons,
+                "all_candidates": [
+                    {
+                        "signal_type": c.signal_type.value,
+                        "confidence": c.confidence.value,
+                        "reasons": c.reasons,
+                    }
+                    for c in stage1_candidates
+                ],
                 "filter_results": [
                     {"condition": r.condition, "passed": r.passed, "reason": r.reason}
-                    for r in stage1_result.filter_results
+                    for c in stage1_candidates
+                    for r in c.filter_results
                 ]
             },
             "stage2": {
                 "skipped": False,
                 "decision": stage2_result.get("signal_decision"),
                 "reason": stage2_result.get("reason"),
-                "stage1_candidate": stage2_result.get("stage1_candidate")
+                "confidence": stage2_result.get("confidence"),
+                "confidence_level": stage2_result.get("confidence_level"),
+                "strike_recommendation": stage2_result.get("strike_recommendation"),
+                "expiry_recommendation": stage2_result.get("expiry_recommendation"),
+                "stop_loss": stage2_result.get("stop_loss"),
+                "risk_flags": stage2_result.get("risk_flags"),
+                "stage1_candidates": stage2_result.get("stage1_candidates"),
             },
             "final_signal": final_signal,
             "indicators_summary": self._summarize_indicators(indicators)
@@ -770,7 +1013,6 @@ class OptionsSignalEngine:
             reasoning=reasoning,
             current_price=price,
             expiry="2 weeks",
-            # For selling puts, strike price typically below current price
             target_price=round(price * 0.95, 2) if price else None,
             stop_loss=round(price * 0.90, 2) if price else None
         )
@@ -780,7 +1022,6 @@ class OptionsSignalEngine:
         conditions = []
         reasoning = []
 
-        # Condition 1: price < SMA20
         sma20 = indicators.get('SMA_20')
         price = indicators.get('Current_Price')
         if price is not None and sma20 is not None and price < sma20:
@@ -790,7 +1031,6 @@ class OptionsSignalEngine:
             conditions.append(False)
             reasoning.append(f"Price (${price:.2f}) >= SMA20 (${sma20:.2f})")
 
-        # Condition 2: RSI < 60
         rsi = indicators.get('RSI_14')
         if rsi is not None and rsi < 60:
             conditions.append(True)
@@ -799,7 +1039,6 @@ class OptionsSignalEngine:
             conditions.append(False)
             reasoning.append(f"RSI ({rsi:.1f}) >= 60")
 
-        # Condition 3: MACD bearish (MACD < Signal)
         macd = indicators.get('MACD')
         macd_signal = indicators.get('MACD_Signal')
         if macd is not None and macd_signal is not None and macd < macd_signal:
@@ -826,7 +1065,6 @@ class OptionsSignalEngine:
             reasoning=reasoning,
             current_price=price,
             expiry="2 weeks",
-            # For selling calls, strike price typically above current price
             target_price=round(price * 1.05, 2) if price else None,
             stop_loss=round(price * 1.10, 2) if price else None
         )
@@ -836,7 +1074,6 @@ class OptionsSignalEngine:
         conditions = []
         reasoning = []
 
-        # Condition 1: price > SMA200 (long-term uptrend)
         sma200 = indicators.get('SMA_200')
         price = indicators.get('Current_Price')
         if price is not None and sma200 is not None and price > sma200:
@@ -846,7 +1083,6 @@ class OptionsSignalEngine:
             conditions.append(False)
             reasoning.append(f"Price (${price:.2f}) <= SMA200 (${sma200:.2f})")
 
-        # Condition 2: RSI > 50 (momentum)
         rsi = indicators.get('RSI_14')
         if rsi is not None and rsi > 50:
             conditions.append(True)
@@ -855,7 +1091,6 @@ class OptionsSignalEngine:
             conditions.append(False)
             reasoning.append(f"RSI ({rsi:.1f}) <= 50")
 
-        # Condition 3: MACD positive (above zero)
         macd = indicators.get('MACD')
         if macd is not None and macd > 0:
             conditions.append(True)
@@ -864,7 +1099,6 @@ class OptionsSignalEngine:
             conditions.append(False)
             reasoning.append(f"MACD ({macd:.4f}) <= 0")
 
-        # Condition 4: Growing volume (10d avg > 30d avg)
         vol_10d = indicators.get('Volume_10d_Avg')
         vol_30d = indicators.get('Volume_30d_Avg')
         if vol_10d is not None and vol_30d is not None and vol_10d > vol_30d:
@@ -890,7 +1124,6 @@ class OptionsSignalEngine:
             reasoning=reasoning,
             current_price=price,
             expiry="3-6 months",
-            # For LEAPS, target is higher price appreciation
             target_price=round(price * 1.20, 2) if price else None,
             stop_loss=round(price * 0.85, 2) if price else None
         )
@@ -908,23 +1141,18 @@ class OptionsSignalEngine:
         """
         self.logger.info("Generating signals", ticker=ticker, indicators_count=len(indicators))
 
-        # Get current price
         current_price = indicators.get('Current_Price')
 
-        # Generate individual signals
         sell_put_signal = self.generate_sell_put_signal(indicators)
         sell_call_signal = self.generate_sell_call_signal(indicators)
         buy_leaps_signal = self.generate_buy_leaps_signal(indicators)
 
-        # Collect non-hold signals
         signals = []
         for signal in [sell_put_signal, sell_call_signal, buy_leaps_signal]:
             if signal.signal_type != SignalType.HOLD:
                 signals.append(signal)
 
-        # If no strong signals, add a neutral recommendation
         if not signals:
-            # Determine overall trend direction
             trend = "neutral"
             rsi = indicators.get('RSI_14', 50)
             if rsi and rsi > 55:
@@ -940,7 +1168,6 @@ class OptionsSignalEngine:
             )
             signals.append(neutral_signal)
 
-        # Create summary of key indicators
         indicators_summary = {
             "RSI_14": indicators.get('RSI_14'),
             "MACD": indicators.get('MACD'),
