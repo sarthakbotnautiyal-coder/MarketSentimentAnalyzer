@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import yaml
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
@@ -332,22 +333,39 @@ class TestEvaluate:
 
 
 # ---------------------------------------------------------------------------
-# Stage2LLM Stub
+# Stage2LLM: graceful degradation on Ollama unavailable
 # ---------------------------------------------------------------------------
 
 class TestStage2LLM:
-    def test_process_candidate_returns_no_candidate(self, sell_puts_indicators):
-        """Stub always returns NO_CANDIDATE."""
+    def test_process_candidates_graceful_degradation(self, sell_puts_indicators):
+        """
+        When Ollama is unavailable/times out, process_candidates() returns
+        NO_TRADE with 'LLM unavailable' reason — never crashes the pipeline.
+        """
         llm = Stage2LLM()
         candidate = CandidateSignal(
             signal_type=SignalType.SELL_PUTS,
             confidence=ConfidenceLevel.HIGH,
             reasons=["RSI oversold", "High IV Rank"],
             current_price=150.0,
+            target_price=142.0,
+            stop_loss=135.0,
+            expiry="2 weeks",
+            filter_results=[],
         )
-        result = llm.process_candidate("AAPL", sell_puts_indicators, candidate)
-        assert result["signal_decision"] == "NO_CANDIDATE"
-        assert "Stage 2 not yet implemented" in result["reason"]
+        # Mock generate_json to return None (Ollama unavailable)
+        with patch.object(llm.llm, "generate_json", return_value=None):
+            result = llm.process_candidates("AAPL", sell_puts_indicators, [candidate])
+        assert result["signal_decision"] == "NO_TRADE"
+        assert "LLM unavailable" in result["reason"]
+        assert result["stage1_candidates"] == ["SELL_PUTS"]
+
+    def test_process_candidates_empty_list_returns_no_trade(self, sell_puts_indicators):
+        """Empty candidates list → NO_TRADE with 'No Stage 1 candidates' reason."""
+        llm = Stage2LLM()
+        result = llm.process_candidates("AAPL", sell_puts_indicators, [])
+        assert result["signal_decision"] == "NO_TRADE"
+        assert "No Stage 1 candidates" in result["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -355,18 +373,25 @@ class TestStage2LLM:
 # ---------------------------------------------------------------------------
 
 class TestHybridSignalPipeline:
-    def test_pipeline_sell_puts_candidate(self, config_file, sell_puts_indicators):
-        """Pipeline with SELL_PUTS candidate → Stage 1 pass, Stage 2 reject."""
+    def test_pipeline_sell_puts_candidate_with_mock(self, config_file, sell_puts_indicators):
+        """
+        Pipeline with SELL_PUTS candidate → Stage 1 pass, Stage 2 mocked
+        graceful degradation (Ollama returns None) → NO_TRADE, final_signal=None.
+        """
         pipeline = HybridSignalPipeline(config_path=config_file)
-        output = pipeline.generate_signals("AAPL", sell_puts_indicators)
+        # Mock the LLMClient.generate_json to simulate Ollama unavailable
+        with patch.object(pipeline.stage2.llm, "generate_json", return_value=None):
+            output = pipeline.generate_signals("AAPL", sell_puts_indicators)
 
         assert output["ticker"] == "AAPL"
-        assert output["pipeline"] == "hybrid_v1"
+        assert output["pipeline"] == "hybrid_v2"
         assert output["stage1"]["passed"] is True
-        assert output["stage1"]["signal_type"] == "SELL_PUTS"
+        assert len(output["stage1"]["all_candidates"]) >= 1
+        assert output["stage1"]["all_candidates"][0]["signal_type"] == "SELL_PUTS"
         assert output["stage2"]["skipped"] is False
-        assert output["stage2"]["decision"] == "NO_CANDIDATE"
-        assert output["final_signal"] is None  # Stage 2 rejected
+        assert output["stage2"]["decision"] == "NO_TRADE"
+        assert "LLM unavailable" in output["stage2"]["reason"]
+        assert output["final_signal"] is None
 
     def test_pipeline_no_candidate(self, config_file, neutral_indicators):
         """Pipeline with no Stage 1 candidate → early exit."""
