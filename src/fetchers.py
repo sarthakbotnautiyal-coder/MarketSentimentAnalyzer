@@ -423,8 +423,8 @@ class StockDataFetcher:
                 delta = close.diff()
                 gain = delta.clip(lower=0)
                 loss = -delta.clip(upper=0)
-                avg_gain = gain.rolling(window=14, min_periods=14).mean()
-                avg_loss = loss.rolling(window=14, min_periods=14).mean()
+                avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+                avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
                 rs = avg_gain / avg_loss
                 rsi = 100 - (100 / (1 + rs))
                 val = rsi.iloc[-1]
