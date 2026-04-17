@@ -70,14 +70,20 @@ def test_get_indicators(sample_db):
 
 
 def test_engine_integration(sample_db):
-    """Test full pipeline."""
+    """Test full pipeline with Stage1HardFilters.
+
+    AAPL with RSI=37.97 (oversold), price below SMA20, above SMA200.
+    With Stage1HardFilters, SELL_PUTS is the expected candidate since RSI < 40
+    and the hard filters use thresholds from signal_thresholds.yaml.
+    """
     indicators = get_indicators(str(sample_db), 'AAPL', '2026-03-27')
     engine = OptionsSignalEngine()
     signals = engine.generate_signals_for_ticker('AAPL', indicators)
     
     assert signals.ticker == 'AAPL'
     assert len(signals.signals) > 0
-    assert 'SELL_CALLS' in [s.signal_type.value for s in signals.signals]  # Expected from data
+    # With Stage1HardFilters, AAPL oversold (RSI=37.97) should produce SELL_PUTS
+    assert 'SELL_PUTS' in [s.signal_type.value for s in signals.signals]
 
 
 @pytest.mark.parametrize('ticker,expected', [
