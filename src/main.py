@@ -130,7 +130,9 @@ def _build_telegram_signals_message(signals_dir: Path, date_str: str) -> str | N
 
     message = "\n".join(parts)
     if len(message) > 4000:
-        message = message[:4000] + "\n\n _(truncated)_"
+        # Truncate at last newline before 4000 to avoid breaking open Markdown entities
+        safe_cut = message[:4000].rfind("\n")
+        message = message[:safe_cut] + f"\n\n _(truncated, {len(tickers)} tickers total)_"
     return message
 
 
