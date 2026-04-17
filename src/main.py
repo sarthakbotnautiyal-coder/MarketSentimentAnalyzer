@@ -7,9 +7,12 @@ Usage:
     python -m src.main [--backfill 1y] [--force-refresh]
 """
 
+import os
 import argparse
 import sys
 import json
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timedelta
 import structlog
@@ -39,6 +42,105 @@ from src.display import Display
 from src.options_engine import OptionsSignalEngine, SignalType
 
 logger = structlog.get_logger()
+
+# ── Telegram alert config ────────────────────────────────────────────────────
+_TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+_TELEGRAM_SIGNALS_CHAT_ID = os.environ.get("TELEGRAM_SIGNALS_CHAT_ID", "-5257920178")
+
+
+def _send_telegram_alert(text: str) -> bool:
+    """Send a message via Telegram Bot API. Returns True on success."""
+    if not _TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — skipping Telegram alert")
+        return False
+    url = f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({
+        "chat_id": _TELEGRAM_SIGNALS_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": "true"
+    }).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            if result.get("ok"):
+                logger.info("Telegram alert sent", chat_id=_TELEGRAM_SIGNALS_CHAT_ID)
+                return True
+            else:
+                logger.error("Telegram API error", error=result)
+                return False
+    except Exception as e:
+        logger.error("Failed to send Telegram alert", error=str(e))
+        return False
+
+
+def _build_telegram_signals_message(signals_dir: Path, date_str: str) -> str | None:
+    """Build Telegram message from summary.json. Returns None if no data."""
+    summary_path = signals_dir / date_str / "summary.json"
+    if not summary_path.exists():
+        logger.warning("No summary.json found for Telegram alert", path=str(summary_path))
+        return None
+
+    with open(summary_path) as f:
+        summary = json.load(f)
+
+    tickers = summary.get("tickers", [])
+    if not tickers:
+        return None
+
+    emoji_map = {
+        "SELL_PUTS": "📈", "SELL_CALLS": "📉", "BUY_LEAPS": "🚀",
+        "HOLD": "⏸️", "NEUTRAL": "➖"
+    }
+    conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴", "NONE": "⚪"}
+
+    header = f"📊 *MSA Daily Signals — {date_str}*\n_{len(tickers)} tickers processed_\n"
+    parts = [header]
+
+    for ticker_obj in tickers:
+        ticker = ticker_obj.get("ticker", "UNKNOWN")
+        price = ticker_obj.get("current_price", 0)
+        price_str = f"${price:.2f}" if isinstance(price, float) else f"${price}"
+        signals = ticker_obj.get("signals", [])
+
+        lines = [f"*{ticker}* | {price_str}"]
+        if not signals:
+            lines.append("  No signals")
+        else:
+            for sig in signals:
+                sig_type = sig.get("signal_type", "UNKNOWN")
+                if sig_type not in {"SELL_PUTS", "SELL_CALLS", "BUY_LEAPS"}:
+                    continue
+                conf = sig.get("confidence", "NONE")
+                emoji = emoji_map.get(sig_type, "📊")
+                lines.append(f"{emoji} *{sig_type}* {conf_emoji.get(conf, '')} {conf}")
+                for r in sig.get("reasoning", [])[:2]:
+                    lines.append(f"   • {r}")
+                tgt = sig.get("target_price")
+                stop = sig.get("stop_loss")
+                if tgt:
+                    lines.append(f"   🎯 Target: ${tgt:.2f}")
+                if stop:
+                    lines.append(f"   🛑 Stop: ${stop:.2f}")
+
+        parts.append("\n".join(lines))
+        parts.append("\n" + "─" * 30)
+
+    message = "\n".join(parts)
+    if len(message) > 4000:
+        message = message[:4000] + "\n\n _(truncated)_"
+    return message
+
+
+def _maybe_send_telegram_alert(signals_dir: Path, date_str: str) -> None:
+    """Send Telegram alert if token is configured. Silent failure."""
+    if not _TELEGRAM_BOT_TOKEN:
+        return
+    message = _build_telegram_signals_message(signals_dir, date_str)
+    if message:
+        _send_telegram_alert(message)
 
 
 def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
@@ -438,6 +540,7 @@ class Analyzer:
         """
         tickers = self.config.tickers
         date_str = datetime.now().strftime('%Y-%m-%d')
+        signals_dir = Path("data/signals")
 
         if self.backfill:
             results = run_backfill(
@@ -457,6 +560,9 @@ class Analyzer:
         print("="*60)
         _generate_and_save_signals(results, date_str, self.signal_engine)
         print("="*60 + "\n")
+
+        # Push signals to Telegram (if token configured)
+        _maybe_send_telegram_alert(signals_dir, date_str)
 
         return results
 

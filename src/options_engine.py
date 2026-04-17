@@ -938,6 +938,7 @@ class OptionsSignalEngine:
     def __init__(self):
         """Initialize the signal engine."""
         self.logger = logger.bind(component="OptionsSignalEngine")
+        self.stage1 = Stage1HardFilters()
 
     def evaluate_signal_confidence(self, conditions_met: int, total_conditions: int) -> ConfidenceLevel:
         """Determine confidence level based on percentage of conditions met."""
@@ -1134,7 +1135,7 @@ class OptionsSignalEngine:
 
         Args:
             ticker: Stock ticker symbol
-            indicators: Dictionary with calculated indicators
+            indicators: Dictionary with calculated indicators (may include Earnings_Date)
 
         Returns:
             TickerSignals object with all signals
@@ -1142,15 +1143,27 @@ class OptionsSignalEngine:
         self.logger.info("Generating signals", ticker=ticker, indicators_count=len(indicators))
 
         current_price = indicators.get('Current_Price')
+        earnings_date = indicators.get('Earnings_Date')
 
-        sell_put_signal = self.generate_sell_put_signal(indicators)
-        sell_call_signal = self.generate_sell_call_signal(indicators)
-        buy_leaps_signal = self.generate_buy_leaps_signal(indicators)
+        # Use Stage1HardFilters.evaluate_all() — respects all threshold configs
+        # and earnings exclusion. The standalone generate_*_signal() methods
+        # bypass these checks and produce incorrect signals.
+        stage1_candidates = self.stage1.evaluate_all(indicators, earnings_date)
 
         signals = []
-        for signal in [sell_put_signal, sell_call_signal, buy_leaps_signal]:
-            if signal.signal_type != SignalType.HOLD:
-                signals.append(signal)
+        for candidate in stage1_candidates:
+            sig = Signal(
+                signal_type=candidate.signal_type,
+                confidence=candidate.confidence,
+                reasoning=candidate.reasons,
+                current_price=current_price,
+                expiry="2 weeks" if candidate.signal_type == SignalType.SELL_PUTS else
+                        "2 weeks" if candidate.signal_type == SignalType.SELL_CALLS else
+                        "3-6 months",
+                target_price=candidate.target_price,
+                stop_loss=candidate.stop_loss,
+            )
+            signals.append(sig)
 
         if not signals:
             trend = "neutral"
