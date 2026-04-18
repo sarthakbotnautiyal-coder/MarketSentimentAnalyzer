@@ -8,7 +8,11 @@ Usage:
 """
 
 import argparse
+import json
+import os
 import sys
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 
 import structlog
@@ -36,6 +40,103 @@ from src.options_engine import Stage1HardFilters
 from src.llm_signal_advisor import LLMSignalAdvisor
 
 logger = structlog.get_logger()
+
+# ── Telegram config ────────────────────────────────────────────────────────────
+
+_TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+_TELEGRAM_SIGNALS_CHAT_ID = os.environ.get("TELEGRAM_SIGNALS_CHAT_ID", "-5257920178")
+
+
+def _send_telegram_alert(text: str) -> bool:
+    """Send a message via Telegram Bot API. Returns True on success."""
+    if not _TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — skipping Telegram alert")
+        return False
+    url = f"https://api.telegram.org/bot{_TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({
+        "chat_id": _TELEGRAM_SIGNALS_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": "true"
+    }).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+            if result.get("ok"):
+                logger.info("Telegram alert sent", chat_id=_TELEGRAM_SIGNALS_CHAT_ID)
+                return True
+            else:
+                logger.error("Telegram API error", error=result)
+                return False
+    except Exception as e:
+        logger.error("Failed to send Telegram alert", error=str(e))
+        return False
+
+
+def _build_telegram_message(decisions: list, date_str: str) -> str:
+    """Build a Telegram message from HIGH confidence decisions."""
+    if not decisions:
+        return None
+
+    conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
+    sig_emoji = {"SELL_PUTS": "📈", "SELL_CALLS": "📉", "NO_TRADE": "➖"}
+
+    header = f"📊 *MSA Signals — {date_str}*\n_{len(decisions)} HIGH confidence signal(s)_\n"
+    parts = [header]
+
+    for item in decisions:
+        ticker = item["ticker"]
+        price = item["price"]
+        advice = item["advice"]
+
+        price_str = f"${price:.2f}" if isinstance(price, (int, float)) else str(price)
+        sig = advice.signal_decision
+        conf = advice.confidence
+
+        lines = [
+            f"*{ticker}* | {price_str}",
+            f"{sig_emoji.get(sig, '📊')} {sig}  {conf_emoji.get(conf, '')} {conf}",
+        ]
+
+        if advice.top_3_reasons:
+            for reason in advice.top_3_reasons:
+                lines.append(f"  • {reason}")
+
+        if advice.strike_recommendation:
+            lines.append(f"  🎯 Strike: {advice.strike_recommendation}")
+        if advice.expiry_recommendation:
+            lines.append(f"  📅 Expiry: {advice.expiry_recommendation}")
+        if advice.stop_loss:
+            lines.append(f"  🛑 Stop: {advice.stop_loss}")
+        if advice.premium_estimate:
+            lines.append(f"  💰 Premium: {advice.premium_estimate}")
+
+        parts.append("\n".join(lines))
+        parts.append("\n" + "─" * 30)
+
+    message = "\n".join(parts)
+    if len(message) > 4000:
+        message = message[:4000] + "\n\n _(truncated)_"
+    return message
+
+
+def _maybe_send_telegram(decisions: list, date_str: str) -> None:
+    """Send Telegram alert if token is configured. Silent failure."""
+    if not _TELEGRAM_BOT_TOKEN:
+        logger.info("TELEGRAM_BOT_TOKEN not set — skipping alert")
+        return
+
+    # Only send HIGH confidence decisions
+    high_conf = [d for d in decisions if d["advice"].confidence == "HIGH"]
+    if not high_conf:
+        logger.info("No HIGH confidence signals — skipping Telegram alert")
+        return
+
+    message = _build_telegram_message(high_conf, date_str)
+    if message:
+        _send_telegram_alert(message)
 
 
 # ── Ticker processing ────────────────────────────────────────────────────────
@@ -173,8 +274,6 @@ def filter_and_advise(results: dict, stage1: Stage1HardFilters,
 
     Returns:
         (favorable_tickers, decisions)
-        - favorable_tickers: list of ticker symbols that passed Stage 1
-        - decisions: list of dicts with ticker, indicators, and LLM advice
     """
     favorable_tickers = []
     decisions = []
@@ -228,7 +327,6 @@ def _print_llm_results(decisions: list, date_str: str) -> None:
     conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
     sig_emoji = {"SELL_PUTS": "📈", "SELL_CALLS": "📉", "NO_TRADE": "➖"}
 
-    # Filter to HIGH confidence only
     high_conf = [d for d in decisions if d["advice"].confidence == "HIGH"]
 
     print(f"\n{'='*60}")
@@ -313,8 +411,11 @@ def main():
         # Always print favorable tickers list
         _print_favorable_tickers(favorable, date_str)
 
-        # LLM results — HIGH confidence only
+        # LLM results — HIGH confidence only (console + Telegram)
         _print_llm_results(decisions, date_str)
+
+        # Telegram — HIGH confidence signals only
+        _maybe_send_telegram(decisions, date_str)
 
         if db:
             db.close()
