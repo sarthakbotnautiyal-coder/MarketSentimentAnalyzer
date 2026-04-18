@@ -31,17 +31,3 @@ sell_calls:
   vol_ratio_min: 1.0
   # Earnings exclusion
   earnings_exclude_days: 14
-
-buy_leaps:
-  # Price must be above SMA200 (long-term uptrend)
-  price_above_sma200: true
-  # RSI in bullish territory
-  rsi_min: 50
-  # MACD above zero (positive momentum)
-  macd_positive: true
-  # Volume confirmation
-  vol_ratio_min: 1.0
-  # Low IV preferred for LEAPS (cheaper options)
-  iv_rank_max: 40
-  # Earnings exclusion
-  earnings_exclude_days: 14

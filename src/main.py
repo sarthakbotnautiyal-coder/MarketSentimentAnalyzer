@@ -91,7 +91,7 @@ def _build_telegram_signals_message(signals_dir: Path, date_str: str) -> str | N
         return None
 
     emoji_map = {
-        "SELL_PUTS": "📈", "SELL_CALLS": "📉", "BUY_LEAPS": "🚀",
+        "SELL_PUTS": "📈", "SELL_CALLS": "📉",
         "HOLD": "⏸️", "NEUTRAL": "➖"
     }
     conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴", "NONE": "⚪"}
@@ -111,7 +111,7 @@ def _build_telegram_signals_message(signals_dir: Path, date_str: str) -> str | N
         else:
             for sig in signals:
                 sig_type = sig.get("signal_type", "UNKNOWN")
-                if sig_type not in {"SELL_PUTS", "SELL_CALLS", "BUY_LEAPS"}:
+                if sig_type not in {"SELL_PUTS", "SELL_CALLS"}:
                     continue
                 conf = sig.get("confidence", "NONE")
                 emoji = emoji_map.get(sig_type, "📊")
@@ -298,7 +298,6 @@ def _print_signal_summary(signals_obj) -> None:
         emoji = {
             "SELL_PUTS": "🟢",
             "SELL_CALLS": "🔴",
-            "BUY_LEAPS": "🟡",
             "HOLD": "⚪",
             "NEUTRAL": "⚪",
         }.get(signal.signal_type.value, "⚪")
