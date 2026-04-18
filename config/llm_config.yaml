@@ -4,6 +4,6 @@
 model: gemma4:e4b
 provider: ollama
 base_url: http://localhost:11434
-timeout_seconds: 60
+timeout_seconds: 300
 retry_attempts: 1
 json_mode: true
