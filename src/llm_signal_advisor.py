@@ -28,6 +28,9 @@ class LLMSignalAdvice(BaseModel):
 
     All field values are flat strings or simple arrays — no nested dicts.
     Strict mode disabled for LLM tolerance; extra fields stripped silently.
+
+    Optional fields default to "" or None so missing LLM output doesn't
+    cause validation errors (e.g. NO_TRADE outputs often omit strike/expiry/stop).
     """
 
     signal_decision: str = Field(
@@ -42,15 +45,15 @@ class LLMSignalAdvice(BaseModel):
         default_factory=list,
         description="Up to 3 short reasons (under 10 words each)",
     )
-    strike_recommendation: str = Field(
+    strike_recommendation: Optional[str] = Field(
         default="",
         description="e.g. $78.50 or ATM / -2% OTM",
     )
-    expiry_recommendation: str = Field(
+    expiry_recommendation: Optional[str] = Field(
         default="",
         description="e.g. 14 DTE or next expiration",
     )
-    stop_loss: str = Field(
+    stop_loss: Optional[str] = Field(
         default="",
         description="e.g. $76.00 (-2.5%) or 1.5×ATR",
     )
@@ -108,17 +111,16 @@ Evaluate the indicators carefully and output a STRICT JSON object ONLY — no ma
 1. Output ONLY a raw JSON object starting with `{` and ending with `}`
 2. All field values must be flat strings or simple arrays — NEVER nested dicts
 3. `top_3_reasons`: each reason must be under 10 words
-4. `strike_recommendation`: use format like "$78.50" or "ATM" or "-5% OTM"
-5. `expiry_recommendation`: use format like "14 DTE" or "next expiration"
-6. `stop_loss`: use ATR multiplier if available, e.g. "$76.00 (-2.5%)" or "$76.00 (1.5×ATR)"
+4. `strike_recommendation`: use format like "$78.50" or "ATM" or "-5% OTM". If NO_TRADE, omit this field or use empty string.
+5. `expiry_recommendation`: use format like "14 DTE" or "next expiration". If NO_TRADE, omit or use empty string.
+6. `stop_loss`: use ATR multiplier if available, e.g. "$76.00 (-2.5%)" or "$76.00 (1.5×ATR)". If NO_TRADE, omit or use empty string.
 7. If conditions are poor for both SELL_PUTS and SELL_CALLS → output NO_TRADE
 8. `premium_estimate` and `risk_flags` are optional — omit if not confident
-9. Never refuse to output JSON"""
+9. Never output null for any field — use empty string "" instead of null"""
 
 
 def _build_user_prompt(ticker: str, indicators: dict, stage1_passed: bool) -> str:
     """Build the user prompt with all indicator values."""
-    # Extract key indicators for the prompt
     key_fields = {
         "Current_Price": indicators.get("Current_Price"),
         "RSI_14": indicators.get("RSI_14"),
@@ -152,7 +154,6 @@ def _build_user_prompt(ticker: str, indicators: dict, stage1_passed: bool) -> st
     key_fields = {k: v for k, v in key_fields.items() if v is not None}
 
     indicators_json = json.dumps(key_fields, indent=2)
-
     stage1_status = "PASSED" if stage1_passed else "NOT PASSED"
 
     return f"""Ticker: {ticker}
@@ -199,8 +200,6 @@ class LLMSignalAdvisor:
     @staticmethod
     def _pydantic_to_schema(model_cls) -> dict:
         """Convert a Pydantic model to a JSON schema dict for prompt injection."""
-        schema = model_cls.model_json_schema()
-        # Inject the schema as a string for the prompt
         return {
             "type": "object",
             "properties": {
@@ -229,6 +228,45 @@ class LLMSignalAdvisor:
             "required": ["signal_decision", "confidence", "top_3_reasons"]
         }
 
+    @staticmethod
+    def _sanitise_raw(raw: dict) -> dict:
+        """
+        Sanitise raw LLM output before Pydantic validation.
+
+        Handles:
+        - null values → replaced with "" for string fields
+        - Missing optional fields → filled with ""
+        - Nested dicts in string fields → flattened to string
+        """
+        out = dict(raw)
+
+        # Null → "" for all string fields
+        for field in ["strike_recommendation", "expiry_recommendation",
+                      "stop_loss", "premium_estimate", "llm_notes"]:
+            val = out.get(field)
+            if val is None:
+                out[field] = ""
+            elif isinstance(val, (dict, list)):
+                out[field] = str(val)
+
+        # top_3_reasons: ensure it's a list
+        top3 = out.get("top_3_reasons")
+        if top3 is None:
+            out["top_3_reasons"] = []
+        elif isinstance(top3, str):
+            # Split by newlines or bullet points
+            parts = [p.strip() for p in top3.split("\n") if p.strip()]
+            out["top_3_reasons"] = parts[:3] if parts else []
+
+        # risk_flags: ensure it's a list
+        rf = out.get("risk_flags")
+        if rf is None:
+            out["risk_flags"] = None
+        elif isinstance(rf, str):
+            out["risk_flags"] = [rf]
+
+        return out
+
     def advise(self, ticker: str, indicators: dict, stage1_passed: bool = True) -> LLMSignalAdvice:
         """
         Get LLM signal advice for a single ticker.
@@ -250,7 +288,6 @@ class LLMSignalAdvisor:
             indicator_count=len([k for k, v in indicators.items() if v is not None]),
         )
 
-        # Call LLM — generate_json returns a dict or None
         raw = self.llm.generate_json(
             prompt=user_prompt,
             system_prompt=SYSTEM_PROMPT,
@@ -265,8 +302,11 @@ class LLMSignalAdvisor:
                 top_3_reasons=["LLM unavailable or returned no response"],
             )
 
+        # Sanitise nulls and missing fields before validation
+        sanitised = self._sanitise_raw(raw)
+
         try:
-            advice = LLMSignalAdvice.model_validate(raw, strict=False)
+            advice = LLMSignalAdvice.model_validate(sanitised, strict=False)
             self.logger.info(
                 "LLM advice received",
                 ticker=ticker,
