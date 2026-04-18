@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
@@ -57,10 +58,8 @@ def _send_telegram_alert(text: str) -> bool:
         "chat_id": _TELEGRAM_SIGNALS_CHAT_ID,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": "true"
     }).encode()
     req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read())
@@ -70,6 +69,15 @@ def _send_telegram_alert(text: str) -> bool:
             else:
                 logger.error("Telegram API error", error=result)
                 return False
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        logger.error(
+            "Telegram HTTP 400 error",
+            status=e.code,
+            response=body[:500],
+            text_preview=text[:200],
+        )
+        return False
     except Exception as e:
         logger.error("Failed to send Telegram alert", error=str(e))
         return False
