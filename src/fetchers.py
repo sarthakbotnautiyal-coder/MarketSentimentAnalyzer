@@ -432,7 +432,7 @@ class StockDataFetcher:
                     indicators['RSI_14'] = round(float(val), 2)
 
             # --- MACD (12, 26, 9) ---
-            if len(data) >= 26:
+            if len(data) >= 27:
                 ema12 = close.ewm(span=12, adjust=False).mean()
                 ema26 = close.ewm(span=26, adjust=False).mean()
                 macd_line = ema12 - ema26
@@ -441,6 +441,9 @@ class StockDataFetcher:
                 indicators['MACD'] = round(float(macd_line.iloc[-1]), 4)
                 indicators['MACD_Signal'] = round(float(signal_line.iloc[-1]), 4)
                 indicators['MACD_Hist'] = round(float(macd_hist.iloc[-1]), 4)
+                # Previous bar values for crossover detection
+                indicators['MACD_Prev'] = round(float(macd_line.iloc[-2]), 4)
+                indicators['MACD_Signal_Prev'] = round(float(signal_line.iloc[-2]), 4)
 
             # --- Simple Moving Averages ---
             if len(data) >= 20:

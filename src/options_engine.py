@@ -265,8 +265,7 @@ class Stage1HardFilters:
             results.append(FilterResult(
                 passed=rsi_pass,
                 condition="rsi",
-                reason=f"RSI={rsi:.1f}, required < {cfg['rsi_max']}" +
-                       (f" (ideal: {cfg['rsi_ideal_min']}-{cfg['rsi_ideal_max']})" if rsi_pass else "")
+                reason=f"RSI={rsi:.1f}, required < {cfg['rsi_max']}"
             ))
             if rsi_pass:
                 reasons.append(f"RSI in oversold zone: {rsi:.1f}")
@@ -338,6 +337,31 @@ class Stage1HardFilters:
                 reasons.append(f"Volume confirmation: {vol_ratio:.2f}x")
         else:
             results.append(FilterResult(passed=False, condition="volume", reason="Volume_Ratio missing"))
+
+        # MACD bullish cross (reversal from bearish to bullish)
+        if cfg.get("macd_bullish_cross", False):
+            macd = self._get_indicator(indicators, "MACD")
+            macd_sig = self._get_indicator(indicators, "MACD_Signal")
+            macd_prev = self._get_indicator(indicators, "MACD_Prev")
+            macd_sig_prev = self._get_indicator(indicators, "MACD_Signal_Prev")
+            if all(v is not None for v in [macd, macd_sig, macd_prev, macd_sig_prev]):
+                # Bullish cross: MACD was below signal, now above
+                macd_pass = (macd_prev <= macd_sig_prev) and (macd > macd_sig)
+                if not macd_pass and self._is_near_boundary(macd - macd_sig, 0):
+                    filter_warning = True
+                results.append(FilterResult(
+                    passed=macd_pass,
+                    condition="macd_bullish_cross",
+                    reason=f"MACD bullish cross: MACD={macd:.4f}, Signal={macd_sig:.4f}"
+                ))
+                if macd_pass:
+                    reasons.append(f"MACD bullish cross (reversal signal)")
+            else:
+                results.append(FilterResult(passed=False, condition="macd_bullish_cross",
+                                            reason="MACD cross values missing"))
+        else:
+            results.append(FilterResult(passed=True, condition="macd_bullish_cross",
+                                        reason="MACD bullish filter disabled"))
 
         # Count passes — need at least 4 conditions to be a candidate
         passed = [r for r in results if r.passed]
@@ -460,6 +484,31 @@ class Stage1HardFilters:
                 reasons.append(f"Volume confirmation: {vol_ratio:.2f}x")
         else:
             results.append(FilterResult(passed=False, condition="volume", reason="Volume_Ratio missing"))
+
+        # MACD bearish cross (reversal from bullish to bearish)
+        if cfg.get("macd_bearish_cross", False):
+            macd = self._get_indicator(indicators, "MACD")
+            macd_sig = self._get_indicator(indicators, "MACD_Signal")
+            macd_prev = self._get_indicator(indicators, "MACD_Prev")
+            macd_sig_prev = self._get_indicator(indicators, "MACD_Signal_Prev")
+            if all(v is not None for v in [macd, macd_sig, macd_prev, macd_sig_prev]):
+                # Bearish cross: MACD was above signal, now below
+                macd_pass = (macd_prev >= macd_sig_prev) and (macd < macd_sig)
+                if not macd_pass and self._is_near_boundary(macd - macd_sig, 0):
+                    filter_warning = True
+                results.append(FilterResult(
+                    passed=macd_pass,
+                    condition="macd_bullish_cross",
+                    reason=f"MACD bullish cross: MACD={macd:.4f}, Signal={macd_sig:.4f}"
+                ))
+                if macd_pass:
+                    reasons.append(f"MACD bullish cross (reversal signal)")
+            else:
+                results.append(FilterResult(passed=False, condition="macd_bullish_cross",
+                                            reason="MACD cross values missing"))
+        else:
+            results.append(FilterResult(passed=True, condition="macd_bullish_cross",
+                                        reason="MACD bullish filter disabled"))
 
         # Count passes
         passed = [r for r in results if r.passed]
@@ -688,9 +737,15 @@ class Stage2LLM:
         }
         signal_type = decision_map.get(signal_decision, SignalType.NO_TRADE)
 
-        # ATR-adjusted stop loss
+        # ATR-adjusted stop loss — handle both dict (from raw LLM) and string (post-normalization)
         stop_loss_raw = raw.get("stop_loss", {})
-        stop_level = stop_loss_raw.get("level")
+        if isinstance(stop_loss_raw, str):
+            # Post-normalization: string like "\.9 (+10.0%)" — extract level via regex
+            import re
+            m = re.search(r'\$?([\d.]+)', stop_loss_raw)
+            stop_level = float(m.group(1)) if m else None
+        else:
+            stop_level = stop_loss_raw.get("level")
         if stop_level is None and atr and price:
             stop_level = round(price - (2 * atr), 2)  # default: 2x ATR below price
 
@@ -698,16 +753,30 @@ class Stage2LLM:
         conf_level_map = {"HIGH": ConfidenceLevel.HIGH, "MEDIUM": ConfidenceLevel.MEDIUM, "LOW": ConfidenceLevel.LOW}
         conf_level = conf_level_map.get(raw.get("confidence_level", ""), ConfidenceLevel.MEDIUM)
 
-        # Strike recommendation
+        # Strike recommendation — handle both dict and string
         strike_rec = raw.get("strike_recommendation", {})
-        strike = strike_rec.get("strike") or round(price)
-        delta_est = strike_rec.get("delta_estimate", 0.25)
-        distance_pct = strike_rec.get("distance_pct", 0.0)
+        if isinstance(strike_rec, str):
+            import re
+            m = re.search(r'\$?([\d.]+)', strike_rec)
+            strike = float(m.group(1)) if m else round(price)
+            delta_m = re.search(r'delta[:~=]\s*([\d.]+)', strike_rec)
+            delta_est = float(delta_m.group(1)) if delta_m else 0.25
+            distance_pct = 0.0
+        else:
+            strike = strike_rec.get("strike") or round(price)
+            delta_est = strike_rec.get("delta_estimate", 0.25)
+            distance_pct = strike_rec.get("distance_pct", 0.0)
 
-        # Expiry recommendation
+        # Expiry recommendation — handle both dict and string
         expiry_rec = raw.get("expiry_recommendation", {})
-        target_expiry = expiry_rec.get("target_expiry")
-        dte = expiry_rec.get("dte", 14)
+        if isinstance(expiry_rec, str):
+            import re
+            dte_m = re.search(r'(\d+)\s*DTE', expiry_rec)
+            dte = int(dte_m.group(1)) if dte_m else 14
+            target_expiry = expiry_rec.split("(")[0].strip() if "(" in expiry_rec else expiry_rec
+        else:
+            target_expiry = expiry_rec.get("target_expiry")
+            dte = expiry_rec.get("dte", 14)
 
         return {
             "signal_decision": signal_decision,
@@ -727,8 +796,8 @@ class Stage2LLM:
             },
             "stop_loss": {
                 "level": stop_level,
-                "distance_pct": stop_loss_raw.get("distance_pct", 0.0),
-                "distance_atr": stop_loss_raw.get("distance_atr", 0.0),
+                "distance_pct": stop_loss_raw.get("distance_pct", 0.0) if isinstance(stop_loss_raw, dict) else 0.0,
+                "distance_atr": stop_loss_raw.get("distance_atr", 0.0) if isinstance(stop_loss_raw, dict) else 0.0,
             },
             "risk_flags": raw.get("risk_flags", []),
         }
@@ -781,6 +850,15 @@ class Stage2LLM:
         # Build prompts from llm_prompt.yaml
         system_prompt = self.prompts["system_prompt"]
         user_prompt = self._build_user_prompt(ticker, indicators, candidates, filter_warning)
+
+        # Log indicators JSON being sent alongside the prompt (easy to grep)
+        indicators_json = self._build_indicators_json(indicators)
+        self.logger.info(
+            "LLM indicators JSON for ticker",
+            ticker=ticker,
+            indicators_json=indicators_json,
+            user_prompt=user_prompt,
+        )
 
         # Call LLM
         price = indicators.get("Current_Price", 0)
@@ -940,8 +1018,8 @@ class HybridSignalPipeline:
             sig = stage2_result
             final_signal = {
                 "signal_type": sig["signal_type"],
-                "confidence": sig["confidence_level"],
-                "confidence_score": sig["confidence"],
+                "confidence": sig["confidence"],  # normalized confidence (HIGH/MEDIUM/LOW from LLM)
+                "confidence_score": sig["confidence_level"],  # raw confidence level from LLM
                 "reasoning_summary": sig.get("reasoning_summary", ""),
                 "reasoning": sig["top_3_reasons"],
                 "current_price": indicators.get("Current_Price"),
