@@ -22,7 +22,6 @@ structlog.configure(
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
     context_class=dict,
@@ -169,12 +168,16 @@ def run_normal(config: Config, db: DatabaseManager, tickers: list,
 
 
 def filter_and_advise(results: dict, stage1: Stage1HardFilters,
-                      advisor: LLMSignalAdvisor) -> list:
+                      advisor: LLMSignalAdvisor) -> tuple[list, list]:
     """
     Run Stage 1 hard filters on all tickers, then call LLM for each candidate.
 
-    Returns a list of dicts with ticker, indicators, and LLM advice.
+    Returns:
+        (favorable_tickers, decisions)
+        - favorable_tickers: list of ticker symbols that passed Stage 1
+        - decisions: list of dicts with ticker, indicators, and LLM advice
     """
+    favorable_tickers = []
     decisions = []
 
     for ticker, result in results.items():
@@ -189,6 +192,7 @@ def filter_and_advise(results: dict, stage1: Stage1HardFilters,
             logger.debug("Ticker failed Stage 1", ticker=ticker)
             continue
 
+        favorable_tickers.append(ticker)
         logger.info(f"Stage 1 passed for {ticker} — requesting LLM advice")
 
         advice = advisor.advise(
@@ -204,10 +208,23 @@ def filter_and_advise(results: dict, stage1: Stage1HardFilters,
             "advice": advice,
         })
 
-    return decisions
+    return favorable_tickers, decisions
 
 
-def _print_results(decisions: list, date_str: str) -> None:
+def _print_favorable_tickers(tickers: list, date_str: str) -> None:
+    """Print the list of tickers that passed Stage 1 filters."""
+    print(f"\n{'='*60}")
+    print(f"Favorable Tickers — {date_str}")
+    print(f"{'='*60}")
+    if tickers:
+        for ticker in tickers:
+            print(f"  ✓ {ticker}")
+    else:
+        print("  No tickers passed Stage 1 filters.")
+    print(f"{'='*60}\n")
+
+
+def _print_llm_results(decisions: list, date_str: str) -> None:
     """Print LLM signal decisions to console."""
     if not decisions:
         print(f"\n{'='*60}")
@@ -294,10 +311,13 @@ def main():
         advisor = LLMSignalAdvisor()
 
         # Filter Stage 1 candidates + get LLM advice
-        decisions = filter_and_advise(results, stage1, advisor)
+        favorable, decisions = filter_and_advise(results, stage1, advisor)
 
-        # Print results
-        _print_results(decisions, date_str)
+        # Print favorable tickers first
+        _print_favorable_tickers(favorable, date_str)
+
+        # Then print LLM signal decisions
+        _print_llm_results(decisions, date_str)
 
         if db:
             db.close()
