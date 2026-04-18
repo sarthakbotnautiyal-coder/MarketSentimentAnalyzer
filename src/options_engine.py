@@ -1,9 +1,10 @@
 """Options signal engine for generating trading recommendations."""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 from datetime import datetime, timedelta
+import json
 import yaml
 from pathlib import Path
 import structlog
@@ -15,7 +16,6 @@ class SignalType(Enum):
     """Types of options signals."""
     SELL_PUTS = "SELL_PUTS"
     SELL_CALLS = "SELL_CALLS"
-    BUY_LEAPS = "BUY_LEAPS"
     HOLD = "HOLD"
     NEUTRAL = "NEUTRAL"
     NO_CANDIDATE = "NO_CANDIDATE"
@@ -32,26 +32,52 @@ class ConfidenceLevel(Enum):
 
 # JSON output schema required by Stage 2 LLM — gemma4:e4b via Ollama
 LLM_OUTPUT_SCHEMA = {
-    "signal_decision": "SELL_PUTS | SELL_CALLS | BUY_LEAPS | NO_TRADE",
-    "confidence": 0.87,
-    "confidence_level": "HIGH | MEDIUM | LOW",
-    "reasoning_summary": "Brief 1-2 sentence explanation of why this signal was chosen or why no trade is recommended.",
-    "top_3_reasons": ["reason1", "reason2", "reason3"],
-    "strike_recommendation": {
-        "strike": 5100,
-        "delta_estimate": 0.25,
-        "distance_pct": 2.2
+    "type": "object",
+    "properties": {
+        "signal_decision": {
+            "type": "string",
+            "enum": ["SELL_PUTS", "SELL_CALLS", "NO_TRADE"]
+        },
+        "confidence": {"type": "number"},
+        "confidence_level": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "reasoning_summary": {"type": "string"},
+        "top_3_reasons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 3
+        },
+        "strike_recommendation": {
+            "type": "object",
+            "properties": {
+                "strike": {"type": "number"},
+                "delta_estimate": {"type": "number"},
+                "distance_pct": {"type": "number"}
+            }
+        },
+        "expiry_recommendation": {
+            "type": "object",
+            "properties": {
+                "target_expiry": {"type": "string"},
+                "dte": {"type": "integer"}
+            }
+        },
+        "stop_loss": {
+            "type": "object",
+            "properties": {
+                "level": {"type": "number"},
+                "distance_pct": {"type": "number"},
+                "distance_atr": {"type": "number"}
+            }
+        },
+        "risk_flags": {
+            "type": "array",
+            "items": {"type": "string"}
+        }
     },
-    "expiry_recommendation": {
-        "target_expiry": "2026-04-30",
-        "dte": 14
-    },
-    "stop_loss": {
-        "level": 4998.00,
-        "distance_pct": 4.23,
-        "distance_atr": 1.0
-    },
-    "risk_flags": ["flag1", "flag2"]
+    "required": ["signal_decision", "confidence", "confidence_level", "top_3_reasons"]
 }
 
 
@@ -120,6 +146,8 @@ class CandidateSignal:
     target_price: float = None
     stop_loss: float = None
     expiry: str = None
+    # Near-boundary warning: True if any condition was within 10% of threshold
+    filter_warning: bool = False
 
 
 @dataclass
@@ -135,7 +163,13 @@ class Stage1HardFilters:
 
     Reads all thresholds from config/signal_thresholds.yaml — no hardcoded values.
     Handles missing indicators gracefully (skip condition, log warning).
+
+    Public methods maintain backward-compatible signatures.
+    Internal _*_with_warning() methods return filter_warning for pipeline use.
     """
+
+    # Threshold for flagging near-boundary cases (within 10% of threshold)
+    NEAR_BOUNDARY_THRESHOLD = 0.10
 
     def __init__(self, config_path: str = None):
         """Initialize with threshold config."""
@@ -149,7 +183,6 @@ class Stage1HardFilters:
 
         self.sell_puts = self.config["sell_puts"]
         self.sell_calls = self.config["sell_calls"]
-        self.buy_leaps = self.config["buy_leaps"]
 
     def _check_earnings_exclusion(
         self, earnings_date: Optional[str], exclude_days: int
@@ -191,27 +224,48 @@ class Stage1HardFilters:
             self.logger.warning("Missing indicator", key=key)
         return value
 
-    def evaluate_sell_puts(self, indicators: dict, earnings_date: Optional[str]) -> CandidateSignal | NoCandidate:
-        """Evaluate SELL_PUTS conditions (oversold entry → bounce play)."""
+    def _is_near_boundary(self, value: float, threshold: float) -> bool:
+        """
+        Check if a value is within 10% of a threshold boundary.
+        Used to flag borderline cases for filter_warning.
+        """
+        if value is None or threshold is None or threshold == 0:
+            return False
+        distance = abs(value - threshold)
+        return distance <= threshold * self.NEAR_BOUNDARY_THRESHOLD
+
+    # ------------------------------------------------------------------
+    # Internal helpers — return (result, filter_warning) tuples
+    # ------------------------------------------------------------------
+
+    def _eval_sell_puts_with_warning(
+        self, indicators: dict, earnings_date: Optional[str]
+    ) -> Tuple[CandidateSignal | NoCandidate, bool]:
+        """
+        Internal: evaluate SELL_PUTS + compute filter_warning.
+        Returns (result, filter_warning) for pipeline use.
+        """
         cfg = self.sell_puts
         results: List[FilterResult] = []
         reasons: List[str] = []
+        filter_warning = False
 
         # Check earnings first
         earnings_result = self._check_earnings_exclusion(earnings_date, cfg["earnings_exclude_days"])
         results.append(earnings_result)
         if not earnings_result.passed:
-            return NoCandidate(reason="Earnings exclusion", filter_results=results)
+            return NoCandidate(reason="Earnings exclusion", filter_results=results), False
 
         # RSI < rsi_max
         rsi = self._get_indicator(indicators, "RSI_14")
         if rsi is not None:
             rsi_pass = rsi < cfg["rsi_max"]
+            if not rsi_pass and self._is_near_boundary(rsi, cfg["rsi_max"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=rsi_pass,
                 condition="rsi",
-                reason=f"RSI={rsi:.1f}, required < {cfg['rsi_max']}" +
-                       (f" (ideal: {cfg['rsi_ideal_min']}-{cfg['rsi_ideal_max']})" if rsi_pass else "")
+                reason=f"RSI={rsi:.1f}, required < {cfg['rsi_max']}"
             ))
             if rsi_pass:
                 reasons.append(f"RSI in oversold zone: {rsi:.1f}")
@@ -222,6 +276,8 @@ class Stage1HardFilters:
         iv_rank = self._get_indicator(indicators, "IV_Rank")
         if iv_rank is not None:
             iv_pass = iv_rank > cfg["iv_rank_min"]
+            if not iv_pass and self._is_near_boundary(iv_rank, cfg["iv_rank_min"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=iv_pass,
                 condition="iv_rank",
@@ -237,6 +293,9 @@ class Stage1HardFilters:
         sma20 = self._get_indicator(indicators, "SMA_20")
         if price is not None and sma20 is not None:
             price_pass = price > sma20
+            # Near boundary: price above SMA20 but within 10% of it
+            if price > sma20 and (price - sma20) / sma20 <= self.NEAR_BOUNDARY_THRESHOLD:
+                filter_warning = True
             results.append(FilterResult(
                 passed=price_pass,
                 condition="price_sma20",
@@ -249,8 +308,10 @@ class Stage1HardFilters:
 
         # Near lower Bollinger Band
         bb_lower = self._get_indicator(indicators, "BB_Lower")
-        if price is not None and bb_lower is not None:
+        if price is not None and bb_lower is not None and bb_lower > 0:
             bb_pass = price <= bb_lower * 1.05  # Within 5% of lower band
+            if not bb_pass and (price - bb_lower) / bb_lower <= self.NEAR_BOUNDARY_THRESHOLD:
+                filter_warning = True
             results.append(FilterResult(
                 passed=bb_pass,
                 condition="bb_lower",
@@ -265,6 +326,8 @@ class Stage1HardFilters:
         vol_ratio = self._get_indicator(indicators, "Volume_Ratio")
         if vol_ratio is not None:
             vol_pass = vol_ratio > cfg["vol_ratio_min"]
+            if not vol_pass and self._is_near_boundary(vol_ratio, cfg["vol_ratio_min"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=vol_pass,
                 condition="volume",
@@ -275,11 +338,36 @@ class Stage1HardFilters:
         else:
             results.append(FilterResult(passed=False, condition="volume", reason="Volume_Ratio missing"))
 
+        # MACD bullish cross (reversal from bearish to bullish)
+        if cfg.get("macd_bullish_cross", False):
+            macd = self._get_indicator(indicators, "MACD")
+            macd_sig = self._get_indicator(indicators, "MACD_Signal")
+            macd_prev = self._get_indicator(indicators, "MACD_Prev")
+            macd_sig_prev = self._get_indicator(indicators, "MACD_Signal_Prev")
+            if all(v is not None for v in [macd, macd_sig, macd_prev, macd_sig_prev]):
+                # Bullish cross: MACD was below signal, now above
+                macd_pass = (macd_prev <= macd_sig_prev) and (macd > macd_sig)
+                if not macd_pass and self._is_near_boundary(macd - macd_sig, 0):
+                    filter_warning = True
+                results.append(FilterResult(
+                    passed=macd_pass,
+                    condition="macd_bullish_cross",
+                    reason=f"MACD bullish cross: MACD={macd:.4f}, Signal={macd_sig:.4f}"
+                ))
+                if macd_pass:
+                    reasons.append(f"MACD bullish cross (reversal signal)")
+            else:
+                results.append(FilterResult(passed=False, condition="macd_bullish_cross",
+                                            reason="MACD cross values missing"))
+        else:
+            results.append(FilterResult(passed=True, condition="macd_bullish_cross",
+                                        reason="MACD bullish filter disabled"))
+
         # Count passes — need at least 4 conditions to be a candidate
         passed = [r for r in results if r.passed]
         if len(passed) >= 4:
             confidence = ConfidenceLevel.HIGH if len(passed) >= 5 else ConfidenceLevel.MEDIUM
-            return CandidateSignal(
+            cand = CandidateSignal(
                 signal_type=SignalType.SELL_PUTS,
                 confidence=confidence,
                 reasons=reasons,
@@ -287,30 +375,40 @@ class Stage1HardFilters:
                 current_price=price,
                 target_price=round(price * 0.95, 2) if price else None,
                 stop_loss=round(price * 0.90, 2) if price else None,
-                expiry="2 weeks"
+                expiry="2 weeks",
+                filter_warning=filter_warning,
             )
+            return cand, filter_warning
 
         return NoCandidate(
             reason=f"Only {len(passed)}/5 conditions passed for SELL_PUTS",
             filter_results=results
-        )
+        ), filter_warning
 
-    def evaluate_sell_calls(self, indicators: dict, earnings_date: Optional[str]) -> CandidateSignal | NoCandidate:
-        """Evaluate SELL_CALLS conditions (overbought entry → mean reversion)."""
+    def _eval_sell_calls_with_warning(
+        self, indicators: dict, earnings_date: Optional[str]
+    ) -> Tuple[CandidateSignal | NoCandidate, bool]:
+        """
+        Internal: evaluate SELL_CALLS + compute filter_warning.
+        Returns (result, filter_warning) for pipeline use.
+        """
         cfg = self.sell_calls
         results: List[FilterResult] = []
         reasons: List[str] = []
+        filter_warning = False
 
         # Check earnings first
         earnings_result = self._check_earnings_exclusion(earnings_date, cfg["earnings_exclude_days"])
         results.append(earnings_result)
         if not earnings_result.passed:
-            return NoCandidate(reason="Earnings exclusion", filter_results=results)
+            return NoCandidate(reason="Earnings exclusion", filter_results=results), False
 
         # RSI > rsi_min
         rsi = self._get_indicator(indicators, "RSI_14")
         if rsi is not None:
             rsi_pass = rsi > cfg["rsi_min"]
+            if not rsi_pass and self._is_near_boundary(rsi, cfg["rsi_min"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=rsi_pass,
                 condition="rsi",
@@ -325,6 +423,8 @@ class Stage1HardFilters:
         iv_rank = self._get_indicator(indicators, "IV_Rank")
         if iv_rank is not None:
             iv_pass = iv_rank > cfg["iv_rank_min"]
+            if not iv_pass and self._is_near_boundary(iv_rank, cfg["iv_rank_min"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=iv_pass,
                 condition="iv_rank",
@@ -340,6 +440,9 @@ class Stage1HardFilters:
         sma20 = self._get_indicator(indicators, "SMA_20")
         if price is not None and sma20 is not None:
             price_pass = price < sma20
+            # Near boundary: price below SMA20 but within 10% of it
+            if price < sma20 and (sma20 - price) / sma20 <= self.NEAR_BOUNDARY_THRESHOLD:
+                filter_warning = True
             results.append(FilterResult(
                 passed=price_pass,
                 condition="price_sma20",
@@ -352,8 +455,10 @@ class Stage1HardFilters:
 
         # Near upper Bollinger Band
         bb_upper = self._get_indicator(indicators, "BB_Upper")
-        if price is not None and bb_upper is not None:
+        if price is not None and bb_upper is not None and bb_upper > 0:
             bb_pass = price >= bb_upper * 0.95  # Within 5% of upper band
+            if not bb_pass and (bb_upper - price) / bb_upper <= self.NEAR_BOUNDARY_THRESHOLD:
+                filter_warning = True
             results.append(FilterResult(
                 passed=bb_pass,
                 condition="bb_upper",
@@ -368,6 +473,8 @@ class Stage1HardFilters:
         vol_ratio = self._get_indicator(indicators, "Volume_Ratio")
         if vol_ratio is not None:
             vol_pass = vol_ratio > cfg["vol_ratio_min"]
+            if not vol_pass and self._is_near_boundary(vol_ratio, cfg["vol_ratio_min"]):
+                filter_warning = True
             results.append(FilterResult(
                 passed=vol_pass,
                 condition="volume",
@@ -378,11 +485,36 @@ class Stage1HardFilters:
         else:
             results.append(FilterResult(passed=False, condition="volume", reason="Volume_Ratio missing"))
 
+        # MACD bearish cross (reversal from bullish to bearish)
+        if cfg.get("macd_bearish_cross", False):
+            macd = self._get_indicator(indicators, "MACD")
+            macd_sig = self._get_indicator(indicators, "MACD_Signal")
+            macd_prev = self._get_indicator(indicators, "MACD_Prev")
+            macd_sig_prev = self._get_indicator(indicators, "MACD_Signal_Prev")
+            if all(v is not None for v in [macd, macd_sig, macd_prev, macd_sig_prev]):
+                # Bearish cross: MACD was above signal, now below
+                macd_pass = (macd_prev >= macd_sig_prev) and (macd < macd_sig)
+                if not macd_pass and self._is_near_boundary(macd - macd_sig, 0):
+                    filter_warning = True
+                results.append(FilterResult(
+                    passed=macd_pass,
+                    condition="macd_bullish_cross",
+                    reason=f"MACD bullish cross: MACD={macd:.4f}, Signal={macd_sig:.4f}"
+                ))
+                if macd_pass:
+                    reasons.append(f"MACD bullish cross (reversal signal)")
+            else:
+                results.append(FilterResult(passed=False, condition="macd_bullish_cross",
+                                            reason="MACD cross values missing"))
+        else:
+            results.append(FilterResult(passed=True, condition="macd_bullish_cross",
+                                        reason="MACD bullish filter disabled"))
+
         # Count passes
         passed = [r for r in results if r.passed]
         if len(passed) >= 4:
             confidence = ConfidenceLevel.HIGH if len(passed) >= 5 else ConfidenceLevel.MEDIUM
-            return CandidateSignal(
+            cand = CandidateSignal(
                 signal_type=SignalType.SELL_CALLS,
                 confidence=confidence,
                 reasons=reasons,
@@ -390,162 +522,60 @@ class Stage1HardFilters:
                 current_price=price,
                 target_price=round(price * 1.05, 2) if price else None,
                 stop_loss=round(price * 1.10, 2) if price else None,
-                expiry="2 weeks"
+                expiry="2 weeks",
+                filter_warning=filter_warning,
             )
+            return cand, filter_warning
 
         return NoCandidate(
             reason=f"Only {len(passed)}/5 conditions passed for SELL_CALLS",
             filter_results=results
-        )
+        ), filter_warning
 
-    def evaluate_buy_leaps(self, indicators: dict, earnings_date: Optional[str]) -> CandidateSignal | NoCandidate:
-        """Evaluate BUY_LEAPS conditions (long-term bullish)."""
-        cfg = self.buy_leaps
-        results: List[FilterResult] = []
-        reasons: List[str] = []
+    # ------------------------------------------------------------------
+    # Public API — backward-compatible signatures (no filter_warning in return)
+    # ------------------------------------------------------------------
 
-        # Check earnings first
-        earnings_result = self._check_earnings_exclusion(earnings_date, cfg["earnings_exclude_days"])
-        results.append(earnings_result)
-        if not earnings_result.passed:
-            return NoCandidate(reason="Earnings exclusion", filter_results=results)
-
-        # Price > SMA200
-        price = self._get_indicator(indicators, "Current_Price")
-        sma200 = self._get_indicator(indicators, "SMA_200")
-        if price is not None and sma200 is not None:
-            price_pass = price > sma200
-            results.append(FilterResult(
-                passed=price_pass,
-                condition="price_sma200",
-                reason=f"Price=${price:.2f}, SMA200=${sma200:.2f}"
-            ))
-            if price_pass:
-                reasons.append(f"Price above SMA200 (${price:.2f} > ${sma200:.2f})")
-        else:
-            results.append(FilterResult(passed=False, condition="price_sma200", reason="Price or SMA200 missing"))
-
-        # RSI > rsi_min
-        rsi = self._get_indicator(indicators, "RSI_14")
-        if rsi is not None:
-            rsi_pass = rsi > cfg["rsi_min"]
-            results.append(FilterResult(
-                passed=rsi_pass,
-                condition="rsi",
-                reason=f"RSI={rsi:.1f}, required > {cfg['rsi_min']}"
-            ))
-            if rsi_pass:
-                reasons.append(f"RSI bullish: {rsi:.1f}")
-        else:
-            results.append(FilterResult(passed=False, condition="rsi", reason="RSI missing"))
-
-        # MACD > 0
-        macd = self._get_indicator(indicators, "MACD")
-        if macd is not None:
-            macd_pass = macd > 0
-            results.append(FilterResult(
-                passed=macd_pass,
-                condition="macd",
-                reason=f"MACD={macd:.4f}, required > 0"
-            ))
-            if macd_pass:
-                reasons.append(f"MACD positive: {macd:.4f}")
-        else:
-            results.append(FilterResult(passed=False, condition="macd", reason="MACD missing"))
-
-        # Volume ratio > vol_ratio_min
-        vol_ratio = self._get_indicator(indicators, "Volume_Ratio")
-        if vol_ratio is not None:
-            vol_pass = vol_ratio > cfg["vol_ratio_min"]
-            results.append(FilterResult(
-                passed=vol_pass,
-                condition="volume",
-                reason=f"Vol ratio={vol_ratio:.2f}, required > {cfg['vol_ratio_min']}"
-            ))
-            if vol_pass:
-                reasons.append(f"Volume confirmation: {vol_ratio:.2f}x")
-        else:
-            results.append(FilterResult(passed=False, condition="volume", reason="Volume_Ratio missing"))
-
-        # IV Rank < iv_rank_max (low IV preferred for LEAPS)
-        iv_rank = self._get_indicator(indicators, "IV_Rank")
-        if iv_rank is not None:
-            iv_pass = iv_rank < cfg["iv_rank_max"]
-            results.append(FilterResult(
-                passed=iv_pass,
-                condition="iv_rank",
-                reason=f"IV Rank={iv_rank:.1f}, required < {cfg['iv_rank_max']}"
-            ))
-            if iv_pass:
-                reasons.append(f"Low IV Rank (good for LEAPS): {iv_rank:.1f}")
-        else:
-            results.append(FilterResult(passed=False, condition="iv_rank", reason="IV Rank missing"))
-
-        # Count passes — need at least 4 conditions
-        passed = [r for r in results if r.passed]
-        if len(passed) >= 4:
-            confidence = ConfidenceLevel.HIGH if len(passed) >= 5 else ConfidenceLevel.MEDIUM
-            return CandidateSignal(
-                signal_type=SignalType.BUY_LEAPS,
-                confidence=confidence,
-                reasons=reasons,
-                filter_results=results,
-                current_price=price,
-                target_price=round(price * 1.20, 2) if price else None,
-                stop_loss=round(price * 0.85, 2) if price else None,
-                expiry="3-6 months"
-            )
-
-        return NoCandidate(
-            reason=f"Only {len(passed)}/5 conditions passed for BUY_LEAPS",
-            filter_results=results
-        )
-
-    def evaluate(self, indicators: dict, earnings_date: Optional[str] = None) -> CandidateSignal | NoCandidate:
+    def evaluate(
+        self, indicators: dict, earnings_date: Optional[str] = None
+    ) -> CandidateSignal | NoCandidate:
         """
-        Evaluate all three signal types and return the first candidate.
-        Tries in order: SELL_PUTS, SELL_CALLS, BUY_LEAPS.
+        Evaluate both signal types and return the first candidate.
+        Tries in order: SELL_PUTS, SELL_CALLS.
+
+        Backward-compatible: returns CandidateSignal | NoCandidate directly.
+        Use evaluate_all() for the full candidate list.
         """
         self.logger.info("Evaluating Stage 1 hard filters", ticker=indicators.get("Ticker", "unknown"))
 
         # Try SELL_PUTS
-        result = self.evaluate_sell_puts(indicators, earnings_date)
+        result, _ = self._eval_sell_puts_with_warning(indicators, earnings_date)
         if isinstance(result, CandidateSignal):
             self.logger.info("SELL_PUTS candidate found", confidence=result.confidence.value)
             return result
 
         # Try SELL_CALLS
-        result = self.evaluate_sell_calls(indicators, earnings_date)
+        result, _ = self._eval_sell_calls_with_warning(indicators, earnings_date)
         if isinstance(result, CandidateSignal):
             self.logger.info("SELL_CALLS candidate found", confidence=result.confidence.value)
             return result
 
-        # Try BUY_LEAPS
-        result = self.evaluate_buy_leaps(indicators, earnings_date)
-        if isinstance(result, CandidateSignal):
-            self.logger.info("BUY_LEAPS candidate found", confidence=result.confidence.value)
-            return result
-
-        # All failed — preserve filter_results from the last NoCandidate
-        return NoCandidate(
-            reason=result.reason if isinstance(result, NoCandidate) else "No signal type passed Stage 1 filters",
-            filter_results=result.filter_results if isinstance(result, NoCandidate) else []
-        )
+        # All failed
+        return result
 
     def evaluate_all(self, indicators: dict, earnings_date: Optional[str] = None) -> List[CandidateSignal]:
         """
         Evaluate ALL signal types and return all passing candidates.
-        Used by Stage 2 to make one LLM call per ticker with all candidates.
+        Backward-compatible: returns List[CandidateSignal] directly.
         """
         self.logger.info("Evaluating all Stage 1 signal types", ticker=indicators.get("Ticker", "unknown"))
         candidates: List[CandidateSignal] = []
 
         for eval_fn, label in [
-            (self.evaluate_sell_puts, "SELL_PUTS"),
-            (self.evaluate_sell_calls, "SELL_CALLS"),
-            (self.evaluate_buy_leaps, "BUY_LEAPS"),
+            (self._eval_sell_puts_with_warning, "SELL_PUTS"),
+            (self._eval_sell_calls_with_warning, "SELL_CALLS"),
         ]:
-            result = eval_fn(indicators, earnings_date)
+            result, _ = eval_fn(indicators, earnings_date)
             if isinstance(result, CandidateSignal):
                 self.logger.info(f"{label} candidate found", confidence=result.confidence.value)
                 candidates.append(result)
@@ -556,6 +586,45 @@ class Stage1HardFilters:
                 ticker=indicators.get("Ticker", "unknown"),
             )
         return candidates
+
+    def evaluate_with_warning(
+        self, indicators: dict, earnings_date: Optional[str] = None
+    ) -> Tuple[CandidateSignal | NoCandidate, bool]:
+        """
+        Backward-compatible evaluate + filter_warning for pipeline use.
+        Returns (result, filter_warning).
+        """
+        result, fw = self._eval_sell_puts_with_warning(indicators, earnings_date)
+        if isinstance(result, CandidateSignal):
+            return result, fw
+
+        result, fw = self._eval_sell_calls_with_warning(indicators, earnings_date)
+        if isinstance(result, CandidateSignal):
+            return result, fw
+
+        return result, fw
+
+    def evaluate_all_with_warning(
+        self, indicators: dict, earnings_date: Optional[str] = None
+    ) -> Tuple[List[CandidateSignal], bool]:
+        """
+        Backward-compatible evaluate_all + filter_warning for pipeline use.
+        Returns (candidates, any_filter_warning).
+        """
+        candidates: List[CandidateSignal] = []
+        any_warning = False
+
+        for eval_fn, label in [
+            (self._eval_sell_puts_with_warning, "SELL_PUTS"),
+            (self._eval_sell_calls_with_warning, "SELL_CALLS"),
+        ]:
+            result, fw = eval_fn(indicators, earnings_date)
+            if isinstance(result, CandidateSignal):
+                candidates.append(result)
+                if fw:
+                    any_warning = True
+
+        return candidates, any_warning
 
 
 # ============================================================================
@@ -573,7 +642,13 @@ class Stage2LLM:
 
     Graceful degradation: if Ollama is unavailable or times out, emits
     NO_TRADE for that ticker and logs a warning. The pipeline never crashes.
+
+    Config: config/llm_config.yaml (Ollama endpoint, model, timeout, retry)
+    Prompts: config/llm_prompt.yaml (system + user templates, editable without code)
     """
+
+    # URL path for Ollama API (matches config/llm_config.yaml default)
+    OLLAMA_API_PATH = "/api/generate"
 
     def __init__(self, config_path: str = "config/llm_config.yaml"):
         self.logger = logger.bind(component="Stage2LLM")
@@ -583,8 +658,8 @@ class Stage2LLM:
         with open(config_file) as f:
             self.cfg = yaml.safe_load(f)
 
-        # Load prompt templates
-        prompts_file = Path(__file__).parent.parent / "config" / "llm_prompts.yaml"
+        # Load NEW prompt templates from llm_prompt.yaml
+        prompts_file = Path(__file__).parent.parent / "config" / "llm_prompt.yaml"
         with open(prompts_file) as f:
             self.prompts = yaml.safe_load(f)
 
@@ -592,66 +667,59 @@ class Stage2LLM:
         from src.llm_client import LLMClient
         self.llm = LLMClient(config_path=config_path, logger=self.logger)
 
-    def _format_candidates(self, candidates: List[CandidateSignal], indicators: dict) -> str:
-        """Format Stage 1 candidates for the user prompt template."""
-        def _fmt(v, fmt):
-            return format(v, fmt) if v is not None else "N/A"
+    def _build_indicators_json(self, indicators: dict) -> str:
+        """Build a clean JSON string of key indicators for the user prompt."""
+        keys = [
+            "Ticker", "Current_Price", "RSI_14", "IV_Rank", "MACD",
+            "MACD_Signal", "SMA_20", "SMA_200", "BB_Upper", "BB_Lower",
+            "ATR_14", "Volume_Ratio"
+        ]
+        filtered = {k: indicators.get(k) for k in keys if k in indicators}
+        return json.dumps(filtered, indent=2)
 
+    def _build_stage1_pass_details(self, candidates: List[CandidateSignal]) -> str:
+        """Build stage1_passed detail string for the user prompt."""
         lines = []
-        price = indicators.get("Current_Price", 0)
-
         for c in candidates:
-            filter_detail = "; ".join(
-                f"{r.condition}={'PASS' if r.passed else 'FAIL'}({r.reason})"
-                for r in c.filter_results
-            )
+            filter_lines = []
+            for r in c.filter_results:
+                status = "PASS" if r.passed else "FAIL"
+                filter_lines.append(f"  {r.condition}: {status} — {r.reason}")
             lines.append(
-                f"- [{c.signal_type.value}] confidence={c.confidence.value}\n"
-                f"  Reasons: {', '.join(c.reasons)}\n"
-                f"  Filters: {filter_detail}\n"
-                f"  Price=${_fmt(c.current_price, '.2f')}, Target=${_fmt(c.target_price, '.2f')}, "
-                f"Stop=${_fmt(c.stop_loss, '.2f')}, Expiry={c.expiry or 'N/A'}"
+                f"[{c.signal_type.value}] confidence={c.confidence.value}\n"
+                + "\n".join(filter_lines)
             )
+        return "\n\n".join(lines) if lines else "(none)"
 
-        return "\n".join(lines) if lines else "(none)"
-
-    def _format_indicators(self, indicators: dict) -> dict:
-        """Format indicator values for the prompt template."""
-        return {
-            "ticker": indicators.get("Ticker", "UNKNOWN"),
-            "price": indicators.get("Current_Price", 0),
-            "rsi": f"{indicators.get('RSI_14', 'N/A'):.1f}" if isinstance(indicators.get("RSI_14"), (int, float)) else "N/A",
-            "iv_rank": f"{indicators.get('IV_Rank', 'N/A'):.1f}" if isinstance(indicators.get("IV_Rank"), (int, float)) else "N/A",
-            "macd": f"{indicators.get('MACD', 'N/A'):.4f}" if isinstance(indicators.get("MACD"), (int, float)) else "N/A",
-            "macd_signal": f"{indicators.get('MACD_Signal', 'N/A'):.4f}" if isinstance(indicators.get("MACD_Signal"), (int, float)) else "N/A",
-            "sma20": f"{indicators.get('SMA_20', 'N/A'):.2f}" if isinstance(indicators.get("SMA_20"), (int, float)) else "N/A",
-            "sma200": f"{indicators.get('SMA_200', 'N/A'):.2f}" if isinstance(indicators.get("SMA_200"), (int, float)) else "N/A",
-            "bb_upper": f"{indicators.get('BB_Upper', 'N/A'):.2f}" if isinstance(indicators.get("BB_Upper"), (int, float)) else "N/A",
-            "bb_lower": f"{indicators.get('BB_Lower', 'N/A'):.2f}" if isinstance(indicators.get("BB_Lower"), (int, float)) else "N/A",
-            "atr": f"{indicators.get('ATR_14', 'N/A'):.2f}" if isinstance(indicators.get("ATR_14"), (int, float)) else "N/A",
-            "vol_ratio": f"{indicators.get('Volume_Ratio', 'N/A'):.2f}" if isinstance(indicators.get("Volume_Ratio"), (int, float)) else "N/A",
-        }
-
-    def _build_user_prompt(self, ticker: str, indicators: dict, candidates: List[CandidateSignal]) -> str:
-        """Build the user prompt from the template and runtime data."""
+    def _build_user_prompt(
+        self,
+        ticker: str,
+        indicators: dict,
+        candidates: List[CandidateSignal],
+        filter_warning: bool = False
+    ) -> str:
+        """
+        Build the user prompt from llm_prompt.yaml template and runtime data.
+        Uses the task-specified schema: {stage1_passed}, {signal_type}, {indicators_json}.
+        """
         tmpl = self.prompts["user_prompt_template"]
-        ind = self._format_indicators(indicators)
-        cand_block = self._format_candidates(candidates, indicators)
+        stage1_passed = self._build_stage1_pass_details(candidates)
+
+        # Primary signal type (first candidate determines direction)
+        signal_type = candidates[0].signal_type.value if candidates else "UNKNOWN"
+
+        # Append filter warning note if near-boundary conditions exist
+        warning_note = ""
+        if filter_warning:
+            warning_note = (
+                "\n\n⚠️  FILTER WARNING: This candidate is near a threshold boundary "
+                "(within 10%). Reduce confidence accordingly."
+            )
 
         return tmpl.format(
-            ticker=ticker,
-            price=ind["price"],
-            rsi=ind["rsi"],
-            iv_rank=ind["iv_rank"],
-            macd=ind["macd"],
-            macd_signal=ind["macd_signal"],
-            sma20=ind["sma20"],
-            sma200=ind["sma200"],
-            bb_upper=ind["bb_upper"],
-            bb_lower=ind["bb_lower"],
-            atr=ind["atr"],
-            vol_ratio=ind["vol_ratio"],
-            stage1_candidates=cand_block,
+            stage1_passed=stage1_passed + warning_note,
+            signal_type=signal_type,
+            indicators_json=self._build_indicators_json(indicators),
         )
 
     def _parse_llm_output(self, raw: dict, price: float, atr: Optional[float]) -> dict:
@@ -665,14 +733,19 @@ class Stage2LLM:
         decision_map = {
             "SELL_PUTS": SignalType.SELL_PUTS,
             "SELL_CALLS": SignalType.SELL_CALLS,
-            "BUY_LEAPS": SignalType.BUY_LEAPS,
             "NO_TRADE": SignalType.NO_TRADE,
         }
         signal_type = decision_map.get(signal_decision, SignalType.NO_TRADE)
 
-        # ATR-adjusted stop loss
+        # ATR-adjusted stop loss — handle both dict (from raw LLM) and string (post-normalization)
         stop_loss_raw = raw.get("stop_loss", {})
-        stop_level = stop_loss_raw.get("level")
+        if isinstance(stop_loss_raw, str):
+            # Post-normalization: string like "\.9 (+10.0%)" — extract level via regex
+            import re
+            m = re.search(r'\$?([\d.]+)', stop_loss_raw)
+            stop_level = float(m.group(1)) if m else None
+        else:
+            stop_level = stop_loss_raw.get("level")
         if stop_level is None and atr and price:
             stop_level = round(price - (2 * atr), 2)  # default: 2x ATR below price
 
@@ -680,16 +753,30 @@ class Stage2LLM:
         conf_level_map = {"HIGH": ConfidenceLevel.HIGH, "MEDIUM": ConfidenceLevel.MEDIUM, "LOW": ConfidenceLevel.LOW}
         conf_level = conf_level_map.get(raw.get("confidence_level", ""), ConfidenceLevel.MEDIUM)
 
-        # Strike recommendation
+        # Strike recommendation — handle both dict and string
         strike_rec = raw.get("strike_recommendation", {})
-        strike = strike_rec.get("strike") or round(price)
-        delta_est = strike_rec.get("delta_estimate", 0.25)
-        distance_pct = strike_rec.get("distance_pct", 0.0)
+        if isinstance(strike_rec, str):
+            import re
+            m = re.search(r'\$?([\d.]+)', strike_rec)
+            strike = float(m.group(1)) if m else round(price)
+            delta_m = re.search(r'delta[:~=]\s*([\d.]+)', strike_rec)
+            delta_est = float(delta_m.group(1)) if delta_m else 0.25
+            distance_pct = 0.0
+        else:
+            strike = strike_rec.get("strike") or round(price)
+            delta_est = strike_rec.get("delta_estimate", 0.25)
+            distance_pct = strike_rec.get("distance_pct", 0.0)
 
-        # Expiry recommendation
+        # Expiry recommendation — handle both dict and string
         expiry_rec = raw.get("expiry_recommendation", {})
-        target_expiry = expiry_rec.get("target_expiry")
-        dte = expiry_rec.get("dte", 14)
+        if isinstance(expiry_rec, str):
+            import re
+            dte_m = re.search(r'(\d+)\s*DTE', expiry_rec)
+            dte = int(dte_m.group(1)) if dte_m else 14
+            target_expiry = expiry_rec.split("(")[0].strip() if "(" in expiry_rec else expiry_rec
+        else:
+            target_expiry = expiry_rec.get("target_expiry")
+            dte = expiry_rec.get("dte", 14)
 
         return {
             "signal_decision": signal_decision,
@@ -709,45 +796,69 @@ class Stage2LLM:
             },
             "stop_loss": {
                 "level": stop_level,
-                "distance_pct": stop_loss_raw.get("distance_pct", 0.0),
-                "distance_atr": stop_loss_raw.get("distance_atr", 0.0),
+                "distance_pct": stop_loss_raw.get("distance_pct", 0.0) if isinstance(stop_loss_raw, dict) else 0.0,
+                "distance_atr": stop_loss_raw.get("distance_atr", 0.0) if isinstance(stop_loss_raw, dict) else 0.0,
             },
             "risk_flags": raw.get("risk_flags", []),
         }
 
-    def process_candidates(
-        self, ticker: str, indicators: dict, candidates: List[CandidateSignal]
+    def process_candidate(
+        self,
+        ticker: str,
+        indicators: dict,
+        stage1_pass_details: dict,
     ) -> dict:
         """
-        Process all Stage 1 candidates for a ticker with one LLM call.
+        Primary Stage 2 entry point called by HybridSignalPipeline.
 
         Args:
             ticker: Stock ticker symbol.
-            indicators: Dict of technical indicators.
-            candidates: List of CandidateSignal objects that passed Stage 1.
+            indicators: Dict of full technical indicators.
+            stage1_pass_details: Dict containing:
+                - candidates: List[CandidateSignal] that passed Stage 1
+                - filter_warning: bool — True if any filter was near-boundary
 
         Returns:
             Stage 2 result dict with final signal decision, or NO_TRADE on failure.
             Never raises — graceful degradation always returns a valid dict.
         """
+        candidates = stage1_pass_details.get("candidates", [])
+        filter_warning = stage1_pass_details.get("filter_warning", False)
+
         self.logger.info(
             "Stage 2 LLM called",
             ticker=ticker,
             candidate_count=len(candidates),
             signal_types=[c.signal_type.value for c in candidates],
+            filter_warning=filter_warning,
         )
 
+        # Stage 1 fail: log NO_CANDIDATE, no LLM call
         if not candidates:
+            self.logger.info(
+                "Stage 1 failed — logging NO_CANDIDATE, no LLM call",
+                ticker=ticker,
+            )
             return {
-                "signal_decision": "NO_TRADE",
-                "reason": "No Stage 1 candidates to evaluate",
-                "stage1_candidates": [],
+                "signal_decision": "NO_CANDIDATE",
+                "reason": "Stage 1 filter failed — no candidate",
+                "stage1_pass_details": stage1_pass_details,
                 "llm_raw": None,
+                "filter_warning": filter_warning,
             }
 
-        # Build prompts
+        # Build prompts from llm_prompt.yaml
         system_prompt = self.prompts["system_prompt"]
-        user_prompt = self._build_user_prompt(ticker, indicators, candidates)
+        user_prompt = self._build_user_prompt(ticker, indicators, candidates, filter_warning)
+
+        # Log indicators JSON being sent alongside the prompt (easy to grep)
+        indicators_json = self._build_indicators_json(indicators)
+        self.logger.info(
+            "LLM indicators JSON for ticker",
+            ticker=ticker,
+            indicators_json=indicators_json,
+            user_prompt=user_prompt,
+        )
 
         # Call LLM
         price = indicators.get("Current_Price", 0)
@@ -768,22 +879,63 @@ class Stage2LLM:
             return {
                 "signal_decision": "NO_TRADE",
                 "reason": "LLM unavailable or timeout — graceful degradation",
-                "stage1_candidates": [c.signal_type.value for c in candidates],
+                "stage1_pass_details": {
+                    "candidates": [
+                        {"signal_type": c.signal_type.value, "confidence": c.confidence.value}
+                        for c in candidates
+                    ],
+                    "filter_warning": filter_warning,
+                },
                 "llm_raw": None,
+                "filter_warning": filter_warning,
             }
 
         # Parse and return
         result = self._parse_llm_output(raw, price, atr)
-        result["stage1_candidates"] = [c.signal_type.value for c in candidates]
+        result["stage1_pass_details"] = {
+            "candidates": [
+                {"signal_type": c.signal_type.value, "confidence": c.confidence.value}
+                for c in candidates
+            ],
+            "filter_warning": filter_warning,
+        }
         result["llm_raw"] = raw
+        result["filter_warning"] = filter_warning
 
         self.logger.info(
             "Stage 2 LLM decision",
             ticker=ticker,
             signal_decision=result["signal_decision"],
             confidence=result["confidence"],
+            filter_warning=filter_warning,
         )
         return result
+
+    def process_candidates(
+        self,
+        ticker: str,
+        indicators: dict,
+        candidates: List[CandidateSignal],
+        filter_warning: bool = False,
+    ) -> dict:
+        """
+        Process all Stage 1 candidates for a ticker with one LLM call.
+        (Maintained for backward compatibility.)
+
+        Args:
+            ticker: Stock ticker symbol.
+            indicators: Dict of technical indicators.
+            candidates: List of CandidateSignal objects that passed Stage 1.
+            filter_warning: True if any filter was near-boundary.
+
+        Returns:
+            Stage 2 result dict with final signal decision, or NO_TRADE on failure.
+        """
+        stage1_pass_details = {
+            "candidates": candidates,
+            "filter_warning": filter_warning,
+        }
+        return self.process_candidate(ticker, indicators, stage1_pass_details)
 
 
 # ============================================================================
@@ -822,13 +974,17 @@ class HybridSignalPipeline:
         """
         self.logger.info("Pipeline invoked", ticker=ticker)
 
-        # Stage 1: collect ALL passing candidates
-        stage1_candidates = self.stage1.evaluate_all(indicators, earnings_date)
+        # Stage 1: collect ALL passing candidates + filter_warning
+        stage1_candidates, filter_warning = self.stage1.evaluate_all_with_warning(indicators, earnings_date)
 
-        # If no candidates, return early
+        stage1_pass_details = {
+            "candidates": stage1_candidates,
+            "filter_warning": filter_warning,
+        }
+
+        # If no candidates, return early with NO_CANDIDATE
         if not stage1_candidates:
-            # Run evaluate() once more to get NoCandidate info
-            single_result = self.stage1.evaluate(indicators, earnings_date)
+            single_result, _ = self.stage1.evaluate_with_warning(indicators, earnings_date)
             return {
                 "ticker": ticker,
                 "timestamp": datetime.now().isoformat(),
@@ -841,17 +997,19 @@ class HybridSignalPipeline:
                         for r in single_result.filter_results
                     ],
                     "all_candidates": [],
+                    "filter_warning": filter_warning,
                 },
                 "stage2": {
                     "skipped": True,
-                    "reason": "No Stage 1 candidate"
+                    "reason": "No Stage 1 candidate",
+                    "signal_decision": "NO_CANDIDATE",
                 },
                 "final_signal": None,
                 "indicators_summary": self._summarize_indicators(indicators)
             }
 
         # Stage 2: one LLM call with ALL candidates
-        stage2_result = self.stage2.process_candidates(ticker, indicators, stage1_candidates)
+        stage2_result = self.stage2.process_candidate(ticker, indicators, stage1_pass_details)
 
         # Build final signal from Stage 2 output
         if stage2_result.get("signal_decision") in ("NO_TRADE", "NO_CANDIDATE"):
@@ -860,8 +1018,8 @@ class HybridSignalPipeline:
             sig = stage2_result
             final_signal = {
                 "signal_type": sig["signal_type"],
-                "confidence": sig["confidence_level"],
-                "confidence_score": sig["confidence"],
+                "confidence": sig["confidence"],  # normalized confidence (HIGH/MEDIUM/LOW from LLM)
+                "confidence_score": sig["confidence_level"],  # raw confidence level from LLM
                 "reasoning_summary": sig.get("reasoning_summary", ""),
                 "reasoning": sig["top_3_reasons"],
                 "current_price": indicators.get("Current_Price"),
@@ -889,7 +1047,8 @@ class HybridSignalPipeline:
                     {"condition": r.condition, "passed": r.passed, "reason": r.reason}
                     for c in stage1_candidates
                     for r in c.filter_results
-                ]
+                ],
+                "filter_warning": filter_warning,
             },
             "stage2": {
                 "skipped": False,
@@ -901,7 +1060,8 @@ class HybridSignalPipeline:
                 "expiry_recommendation": stage2_result.get("expiry_recommendation"),
                 "stop_loss": stage2_result.get("stop_loss"),
                 "risk_flags": stage2_result.get("risk_flags"),
-                "stage1_candidates": stage2_result.get("stage1_candidates"),
+                "stage1_pass_details": stage2_result.get("stage1_pass_details"),
+                "filter_warning": stage2_result.get("filter_warning", filter_warning),
             },
             "final_signal": final_signal,
             "indicators_summary": self._summarize_indicators(indicators)
@@ -936,12 +1096,6 @@ class OptionsSignalEngine:
         * price < SMA20
         * RSI < 60
         * MACD bearish (MACD < Signal)
-
-    - Buy leaps (long-term bullish, 3-6 months):
-        * price > SMA200
-        * RSI > 50
-        * MACD positive (MACD > 0)
-        * Growing volume (Volume_10d_Avg > Volume_30d_Avg)
     """
 
     def __init__(self):
@@ -1079,84 +1233,15 @@ class OptionsSignalEngine:
             stop_loss=round(price * 1.10, 2) if price else None
         )
 
-    def generate_buy_leaps_signal(self, indicators: Dict[str, Any]) -> Signal:
-        """Generate signal for buying LEAPS (long-term bullish)."""
-        conditions = []
-        reasoning = []
-
-        sma200 = indicators.get('SMA_200')
-        price = indicators.get('Current_Price')
-        if price is not None and sma200 is not None and price > sma200:
-            conditions.append(True)
-            reasoning.append(f"Price (${price:.2f}) > SMA200 (${sma200:.2f})")
-        elif price is not None and sma200 is not None:
-            conditions.append(False)
-            reasoning.append(f"Price (${price:.2f}) <= SMA200 (${sma200:.2f})")
-
-        rsi = indicators.get('RSI_14')
-        if rsi is not None and rsi > 50:
-            conditions.append(True)
-            reasoning.append(f"RSI ({rsi:.1f}) > 50")
-        elif rsi is not None:
-            conditions.append(False)
-            reasoning.append(f"RSI ({rsi:.1f}) <= 50")
-
-        macd = indicators.get('MACD')
-        if macd is not None and macd > 0:
-            conditions.append(True)
-            reasoning.append(f"MACD ({macd:.4f}) > 0")
-        elif macd is not None:
-            conditions.append(False)
-            reasoning.append(f"MACD ({macd:.4f}) <= 0")
-
-        vol_10d = indicators.get('Volume_10d_Avg')
-        vol_30d = indicators.get('Volume_30d_Avg')
-        if vol_10d is not None and vol_30d is not None and vol_10d > vol_30d:
-            conditions.append(True)
-            reasoning.append(f"Volume trend positive: 10-day ({vol_10d:,.0f}) > 30-day ({vol_30d:,.0f})")
-        elif vol_10d is not None and vol_30d is not None:
-            conditions.append(False)
-            reasoning.append(f"Volume trend negative: 10-day ({vol_10d:,.0f}) <= 30-day ({vol_30d:,.0f})")
-
-        confidence = self.evaluate_signal_confidence(len(conditions), 4)
-
-        if confidence == ConfidenceLevel.NONE:
-            return Signal(
-                signal_type=SignalType.HOLD,
-                confidence=ConfidenceLevel.NONE,
-                reasoning=["Not enough long-term bullish conditions for LEAPS"],
-                current_price=price
-            )
-
-        return Signal(
-            signal_type=SignalType.BUY_LEAPS,
-            confidence=confidence,
-            reasoning=reasoning,
-            current_price=price,
-            expiry="3-6 months",
-            target_price=round(price * 1.20, 2) if price else None,
-            stop_loss=round(price * 0.85, 2) if price else None
-        )
-
     def generate_signals_for_ticker(self, ticker: str, indicators: Dict[str, Any]) -> TickerSignals:
         """
         Generate all applicable signals for a ticker.
-
-        Args:
-            ticker: Stock ticker symbol
-            indicators: Dictionary with calculated indicators (may include Earnings_Date)
-
-        Returns:
-            TickerSignals object with all signals
         """
         self.logger.info("Generating signals", ticker=ticker, indicators_count=len(indicators))
 
         current_price = indicators.get('Current_Price')
         earnings_date = indicators.get('Earnings_Date')
 
-        # Use Stage1HardFilters.evaluate_all() — respects all threshold configs
-        # and earnings exclusion. The standalone generate_*_signal() methods
-        # bypass these checks and produce incorrect signals.
         stage1_candidates = self.stage1.evaluate_all(indicators, earnings_date)
 
         signals = []
@@ -1166,9 +1251,7 @@ class OptionsSignalEngine:
                 confidence=candidate.confidence,
                 reasoning=candidate.reasons,
                 current_price=current_price,
-                expiry="2 weeks" if candidate.signal_type == SignalType.SELL_PUTS else
-                        "2 weeks" if candidate.signal_type == SignalType.SELL_CALLS else
-                        "3-6 months",
+                expiry="2 weeks",
                 target_price=candidate.target_price,
                 stop_loss=candidate.stop_loss,
             )

@@ -48,14 +48,6 @@ def config_file(tmp_path: Path):
             "vol_ratio_min": 1.0,
             "earnings_exclude_days": 14,
         },
-        "buy_leaps": {
-            "price_above_sma200": True,
-            "rsi_min": 50,
-            "macd_positive": True,
-            "vol_ratio_min": 1.0,
-            "iv_rank_max": 40,
-            "earnings_exclude_days": 14,
-        },
     }
     path = tmp_path / "signal_thresholds.yaml"
     with open(path, "w") as f:
@@ -92,19 +84,6 @@ def sell_calls_indicators():
         "SMA_20": 145.0,
         "BB_Upper": 143.0,  # Near price means near upper band
         "Volume_Ratio": 1.2,
-    }
-
-
-@pytest.fixture
-def buy_leaps_indicators():
-    """Indicators that should pass BUY_LEAPS filters (all 5 conditions pass)."""
-    return {
-        "RSI_14": 58.0,
-        "IV_Rank": 30.0,
-        "Current_Price": 200.0,
-        "SMA_200": 180.0,
-        "MACD": 2.5,
-        "Volume_Ratio": 1.1,
     }
 
 
@@ -253,57 +232,6 @@ class TestSellCallsFilter:
 
 
 # ---------------------------------------------------------------------------
-# Stage1HardFilters: BUY_LEAPS
-# ---------------------------------------------------------------------------
-
-class TestBuyLeapsFilter:
-    def test_buy_leaps_passes_all_conditions(self, filters, buy_leaps_indicators):
-        """All conditions met → CandidateSignal."""
-        result = filters.evaluate_buy_leaps(buy_leaps_indicators, None)
-        assert isinstance(result, CandidateSignal)
-        assert result.signal_type == SignalType.BUY_LEAPS
-
-    def test_buy_leaps_price_below_sma200_fails(self, filters, buy_leaps_indicators):
-        """Price below SMA200 + high IV + low volume → only 2 conditions pass → NoCandidate."""
-        indicators = {
-            "RSI_14": 58.0,  # pass
-            "IV_Rank": 50.0,  # FAIL (> 40 means high IV)
-            "Current_Price": 160.0,  # < SMA200 = FAIL
-            "SMA_200": 180.0,
-            "MACD": 2.5,  # pass
-            "Volume_Ratio": 0.5,  # FAIL
-        }
-        result = filters.evaluate_buy_leaps(indicators, None)
-        assert isinstance(result, NoCandidate)
-
-    def test_buy_leaps_negative_macd_fails(self, filters, buy_leaps_indicators):
-        """MACD negative + high IV + low volume → only 2 conditions pass → NoCandidate."""
-        indicators = {
-            "RSI_14": 58.0,  # pass
-            "IV_Rank": 50.0,  # FAIL
-            "Current_Price": 200.0,
-            "SMA_200": 180.0,  # pass
-            "MACD": -1.5,  # FAIL
-            "Volume_Ratio": 0.5,  # FAIL
-        }
-        result = filters.evaluate_buy_leaps(indicators, None)
-        assert isinstance(result, NoCandidate)
-
-    def test_buy_leaps_high_iv_rank_fails(self, filters, buy_leaps_indicators):
-        """IV Rank too high + negative MACD + low volume → only 2 conditions pass → NoCandidate."""
-        indicators = {
-            "RSI_14": 58.0,  # pass
-            "IV_Rank": 55.0,  # FAIL (must be < 40)
-            "Current_Price": 200.0,
-            "SMA_200": 180.0,  # pass
-            "MACD": -1.0,  # FAIL
-            "Volume_Ratio": 0.5,  # FAIL
-        }
-        result = filters.evaluate_buy_leaps(indicators, None)
-        assert isinstance(result, NoCandidate)
-
-
-# ---------------------------------------------------------------------------
 # Stage1HardFilters: evaluate() returns first candidate
 # ---------------------------------------------------------------------------
 
@@ -319,12 +247,6 @@ class TestEvaluate:
         result = filters.evaluate(sell_calls_indicators)
         assert isinstance(result, CandidateSignal)
         assert result.signal_type == SignalType.SELL_CALLS
-
-    def test_evaluate_falls_through_to_buy_leaps(self, filters, buy_leaps_indicators):
-        """SELL_PUTS and SELL_CALLS fail, BUY_LEAPS passes → returns BUY_LEAPS."""
-        result = filters.evaluate(buy_leaps_indicators)
-        assert isinstance(result, CandidateSignal)
-        assert result.signal_type == SignalType.BUY_LEAPS
 
     def test_evaluate_all_fail(self, filters, neutral_indicators):
         """No filters pass → NoCandidate."""
