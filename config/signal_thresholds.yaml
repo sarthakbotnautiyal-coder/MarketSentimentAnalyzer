@@ -1,16 +1,15 @@
-# Signal threshold configuration for MarketSentimentAnalyzer hybrid pipeline
+# Signal threshold configuration for MarketSentimentAnalyzer
 # All numeric thresholds are externalized — no hardcoding in Stage1HardFilters
 
 sell_puts:
-  # RSI threshold: must be below this (oversold)
-  rsi_max: 40
-  # Ideal RSI range for quality entry
-  rsi_ideal_min: 25
-  rsi_ideal_max: 40
+  # RSI threshold: must be below 35 (oversold zone for put selling)
+  rsi_max: 35
   # IV Rank: high IV environment preferred for premium selling
-  iv_rank_min: 60
+  iv_rank_min: 30
   # Price must be above SMA20 (uptrend confirmation)
   price_above_sma20: true
+  # MACD reversal: MACD line just crossed above signal line (bullish reversal)
+  macd_bullish_cross: true
   # Entry near lower Bollinger Band (oversold bounce setup)
   bb_lower_proximity: true
   # Volume confirmation: today's volume > 10-day average
@@ -19,12 +18,14 @@ sell_puts:
   earnings_exclude_days: 14
 
 sell_calls:
-  # RSI threshold: must be above this (overbought)
+  # RSI threshold: must be above 65 (overbought zone for call selling)
   rsi_min: 65
   # IV Rank: high IV environment preferred
-  iv_rank_min: 60
+  iv_rank_min: 30
   # Price below SMA20 (downtrend confirmation)
   price_below_sma20: true
+  # MACD reversal: MACD line just crossed below signal line (bearish reversal)
+  macd_bearish_cross: true
   # Entry near upper Bollinger Band (overbought entry)
   bb_upper_proximity: true
   # Volume confirmation

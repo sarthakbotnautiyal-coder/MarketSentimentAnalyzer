@@ -39,7 +39,12 @@ from src.config import Config, DatabaseConfig
 from src.database import DatabaseManager
 from src.fetchers import StockDataFetcher
 from src.display import Display
-from src.options_engine import OptionsSignalEngine, SignalType
+from src.options_engine import (
+    OptionsSignalEngine,
+    HybridSignalPipeline,
+    SignalType,
+    ConfidenceLevel,
+)
 
 logger = structlog.get_logger()
 
@@ -141,6 +146,101 @@ def _maybe_send_telegram_alert(signals_dir: Path, date_str: str) -> None:
     message = _build_telegram_signals_message(signals_dir, date_str)
     if message:
         _send_telegram_alert(message)
+
+
+# ── Hybrid Signal Wrapper ────────────────────────────────────────────────────
+# Adapts HybridSignalPipeline dict output to the TickerSignals interface
+# expected by _build_telegram_signals_message / summary.json structure.
+
+
+class _HybridSignalWrapper:
+    """
+    Wraps a hybrid pipeline output dict so it can be used like a TickerSignals object.
+
+    The hybrid pipeline returns a dict with a nested `final_signal` dict inside.
+    This wrapper flattens it into an object with `.ticker`, `.current_price`,
+    `.signals` (list of signal-like objects), and `.to_dict()` that returns the
+    structure expected by _build_telegram_signals_message.
+    """
+
+    def __init__(self, pipeline_result: dict):
+        self._dict = pipeline_result
+        self.ticker = pipeline_result.get("ticker", "")
+
+        fs = pipeline_result.get("final_signal") or {}
+        ind_sum = pipeline_result.get("indicators_summary", {})
+
+        # current_price: from final_signal, fallback to indicators_summary
+        self.current_price = (
+            fs.get("current_price")
+            or ind_sum.get("Current_Price")
+            or 0.0
+        )
+
+        # Build .signals list — each signal has .signal_type, .confidence,
+        # .reasoning, .target_price, .stop_loss
+        self.signals = self._build_signals(fs)
+
+    def _build_signals(self, fs: dict) -> list:
+        """Build signal objects from the final_signal dict."""
+        if not fs:
+            return []
+
+        sig_type_str = fs.get("signal_type", "NEUTRAL")
+        try:
+            sig_type = SignalType(sig_type_str)
+        except ValueError:
+            sig_type = SignalType.NEUTRAL
+
+        conf_str = fs.get("confidence", "NONE")
+        try:
+            conf = ConfidenceLevel(conf_str)
+        except ValueError:
+            conf = ConfidenceLevel.NONE
+
+        reasoning = fs.get("reasoning", [])
+        if isinstance(reasoning, str):
+            reasoning = [reasoning]
+
+        # Simple container that behaves like Signal
+        class _Signal:
+            def __init__(self, st, cf, rea, tgt, stop):
+                self.signal_type = st
+                self.confidence = cf
+                self.reasoning = rea
+                self.target_price = tgt
+                self.stop_loss = stop
+
+        return [
+            _Signal(
+                st=sig_type,
+                cf=conf,
+                rea=reasoning,
+                tgt=fs.get("target_price"),
+                stop=fs.get("stop_loss"),
+            )
+        ]
+
+    def to_dict(self) -> dict:
+        """
+        Return the flat ticker dict expected by _build_telegram_signals_message
+        and the summary.json structure:
+          { ticker, current_price, signals: [{signal_type, confidence, reasoning, target_price, stop_loss}] }
+        """
+        return {
+            "ticker": self.ticker,
+            "current_price": self.current_price,
+            "signals": [
+                {
+                    "signal_type": s.signal_type.value,
+                    "confidence": s.confidence.value,
+                    "reasoning": s.reasoning,
+                    "target_price": s.target_price,
+                    "stop_loss": s.stop_loss,
+                }
+                for s in self.signals
+            ],
+        }
 
 
 def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
@@ -264,7 +364,7 @@ def _save_signals_to_json(signals_obj, date_str: str, base_dir: Path = None) -> 
     """Save ticker signals to JSON file.
 
     Args:
-        signals_obj: TickerSignals object
+        signals_obj: TickerSignals object or _HybridSignalWrapper
         date_str: Date string for directory structure
         base_dir: Base directory for signals (defaults to data/signals)
 
@@ -288,7 +388,7 @@ def _print_signal_summary(signals_obj) -> None:
     """Print a concise signal summary to stdout.
 
     Args:
-        signals_obj: TickerSignals object
+        signals_obj: TickerSignals object or _HybridSignalWrapper
     """
     ticker = signals_obj.ticker
     price = signals_obj.current_price
@@ -319,13 +419,19 @@ def _print_signal_summary(signals_obj) -> None:
             print(f"      • Target: ${signal.target_price:.2f} | Stop: ${signal.stop_loss:.2f}")
 
 
-def _generate_and_save_signals(results: dict, date_str: str, engine: OptionsSignalEngine) -> dict:
+def _generate_and_save_signals(results: dict, date_str: str,
+                                engine: OptionsSignalEngine,
+                                hybrid_pipeline: HybridSignalPipeline) -> dict:
     """Generate signals for all tickers with valid indicators and save to JSON.
+
+    Uses the HybridSignalPipeline for signal generation, wrapping its output
+    to match the TickerSignals interface.
 
     Args:
         results: Dictionary of {ticker: {"ticker": ..., "indicators": ...}}
         date_str: Date string for directory structure
-        engine: OptionsSignalEngine instance
+        engine: Legacy OptionsSignalEngine (kept for compatibility)
+        hybrid_pipeline: HybridSignalPipeline instance
 
     Returns:
         Dictionary of {ticker: TickerSignals}
@@ -340,15 +446,17 @@ def _generate_and_save_signals(results: dict, date_str: str, engine: OptionsSign
             continue
 
         try:
-            ticker_signals = engine.generate_signals_for_ticker(ticker, indicators)
-            signals_results[ticker] = ticker_signals
-            all_signals.append(ticker_signals.to_dict())
+            # Use hybrid pipeline (Stage 1 Hard Filters + Stage 2 LLM)
+            pipeline_result = hybrid_pipeline.generate_signals(ticker, indicators)
+            wrapper = _HybridSignalWrapper(pipeline_result)
+            signals_results[ticker] = wrapper
+            all_signals.append(wrapper.to_dict())
 
             # Save per-ticker JSON
-            _save_signals_to_json(ticker_signals, date_str)
+            _save_signals_to_json(wrapper, date_str)
 
             # Print signal summary
-            _print_signal_summary(ticker_signals)
+            _print_signal_summary(wrapper)
 
         except Exception as e:
             logger.error("Error generating signals", ticker=ticker, error=str(e))
@@ -411,11 +519,11 @@ def run_backfill(config: Config, db: DatabaseManager, tickers: list,
             earnings_date = fetcher.get_next_earnings_date(ticker)
             if earnings_date:
                 indicators['Earnings_Date'] = earnings_date
-    
+
                 # Save indicators (overwrites previous due to PRIMARY KEY on ticker)
                 if db and "error" not in indicators:
                     db.save_indicators(ticker, date_str, indicators)
-    
+
                 Display.print_indicators(ticker, indicators)
                 results[ticker] = {"ticker": ticker, "indicators": indicators}
 
@@ -521,8 +629,9 @@ class Analyzer:
         if config.database:
             self.db = DatabaseManager(config.database.path)
 
-        # Initialize signal engine
-        self.signal_engine = OptionsSignalEngine()
+        # Initialize signal engines
+        self.signal_engine = OptionsSignalEngine()          # legacy, kept for compatibility
+        self.hybrid_pipeline = HybridSignalPipeline()        # hybrid Stage1+Stage2 pipeline
 
         logger.info(
             "Analyzer initialized",
@@ -553,11 +662,15 @@ class Analyzer:
         # Display summary
         Display.print_summary(results)
 
-        # Generate and save signals for all tickers
+        # Generate and save signals for all tickers (via hybrid pipeline)
         print("\n" + "="*60)
         print("OPTIONS SIGNALS")
         print("="*60)
-        _generate_and_save_signals(results, date_str, self.signal_engine)
+        _generate_and_save_signals(
+            results, date_str,
+            engine=self.signal_engine,
+            hybrid_pipeline=self.hybrid_pipeline,
+        )
         print("="*60 + "\n")
 
         # Push signals to Telegram (if token configured)
