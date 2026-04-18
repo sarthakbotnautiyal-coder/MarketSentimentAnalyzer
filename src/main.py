@@ -10,7 +10,6 @@ Usage:
 import argparse
 import sys
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import structlog
 
@@ -225,23 +224,23 @@ def _print_favorable_tickers(tickers: list, date_str: str) -> None:
 
 
 def _print_llm_results(decisions: list, date_str: str) -> None:
-    """Print LLM signal decisions to console."""
-    if not decisions:
-        print(f"\n{'='*60}")
-        print(f"LLM Signal Advisor — {date_str}")
-        print(f"{'='*60}")
-        print("  No tickers passed Stage 1 filters.")
-        print(f"{'='*60}\n")
-        return
-
+    """Print LLM signal decisions to console — HIGH confidence only."""
     conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
     sig_emoji = {"SELL_PUTS": "📈", "SELL_CALLS": "📉", "NO_TRADE": "➖"}
 
+    # Filter to HIGH confidence only
+    high_conf = [d for d in decisions if d["advice"].confidence == "HIGH"]
+
     print(f"\n{'='*60}")
-    print(f"LLM Signal Advisor — {date_str}")
+    print(f"LLM Signal Advisor — {date_str}  [HIGH confidence only]")
     print(f"{'='*60}")
 
-    for item in decisions:
+    if not high_conf:
+        print("  No HIGH confidence signals.")
+        print(f"{'='*60}\n")
+        return
+
+    for item in high_conf:
         ticker = item["ticker"]
         price = item["price"]
         advice = item["advice"]
@@ -306,17 +305,15 @@ def main():
         else:
             results = run_normal(config, db, config.tickers, args.force_refresh)
 
-        # Initialize LLM advisor
         stage1 = Stage1HardFilters()
         advisor = LLMSignalAdvisor()
 
-        # Filter Stage 1 candidates + get LLM advice
         favorable, decisions = filter_and_advise(results, stage1, advisor)
 
-        # Print favorable tickers first
+        # Always print favorable tickers list
         _print_favorable_tickers(favorable, date_str)
 
-        # Then print LLM signal decisions
+        # LLM results — HIGH confidence only
         _print_llm_results(decisions, date_str)
 
         if db:
