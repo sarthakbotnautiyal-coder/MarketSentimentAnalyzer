@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Fetches stock data, calculates technical indicators,
-and filters tickers based on Stage 1 hard filter conditions.
+runs Stage 1 hard filters, then uses LLM to produce signal decisions.
 
 Usage:
     python -m src.main [--backfill 1y] [--force-refresh]
@@ -35,8 +35,12 @@ from src.config import Config
 from src.database import DatabaseManager
 from src.fetchers import StockDataFetcher
 from src.options_engine import Stage1HardFilters
+from src.llm_signal_advisor import LLMSignalAdvisor
 
 logger = structlog.get_logger()
+
+
+# ── Ticker processing ────────────────────────────────────────────────────────
 
 
 def process_ticker(ticker: str, db: DatabaseManager, fetcher: StockDataFetcher,
@@ -102,6 +106,9 @@ def _compute_indicators_from_db(db: DatabaseManager, tickers: list) -> dict:
     return results
 
 
+# ── Run modes ────────────────────────────────────────────────────────────────
+
+
 def run_backfill(config: Config, db: DatabaseManager, tickers: list,
                  force_refresh: bool = False) -> dict:
     """Run backfill mode: fetch 1 year of data for all tickers."""
@@ -158,9 +165,18 @@ def run_normal(config: Config, db: DatabaseManager, tickers: list,
     return results
 
 
-def filter_favorable_tickers(results: dict, stage1: Stage1HardFilters) -> list:
-    """Return list of tickers that pass Stage 1 hard filters."""
-    favorable = []
+# ── Filter + LLM pipeline ────────────────────────────────────────────────────
+
+
+def filter_and_advise(results: dict, stage1: Stage1HardFilters,
+                      advisor: LLMSignalAdvisor) -> list:
+    """
+    Run Stage 1 hard filters on all tickers, then call LLM for each candidate.
+
+    Returns a list of dicts with ticker, indicators, and LLM advice.
+    """
+    decisions = []
+
     for ticker, result in results.items():
         indicators = result.get("indicators", {})
         if "error" in indicators:
@@ -169,10 +185,79 @@ def filter_favorable_tickers(results: dict, stage1: Stage1HardFilters) -> list:
         earnings_date = indicators.get("Next_Earnings_Date")
         candidates, _ = stage1.evaluate_all_with_warning(indicators, earnings_date)
 
-        if candidates:
-            favorable.append(ticker)
+        if not candidates:
+            logger.debug("Ticker failed Stage 1", ticker=ticker)
+            continue
 
-    return favorable
+        logger.info(f"Stage 1 passed for {ticker} — requesting LLM advice")
+
+        advice = advisor.advise(
+            ticker=ticker,
+            indicators=indicators,
+            stage1_passed=True,
+        )
+
+        decisions.append({
+            "ticker": ticker,
+            "price": indicators.get("Current_Price", 0),
+            "indicators": indicators,
+            "advice": advice,
+        })
+
+    return decisions
+
+
+def _print_results(decisions: list, date_str: str) -> None:
+    """Print LLM signal decisions to console."""
+    if not decisions:
+        print(f"\n{'='*60}")
+        print(f"LLM Signal Advisor — {date_str}")
+        print(f"{'='*60}")
+        print("  No tickers passed Stage 1 filters.")
+        print(f"{'='*60}\n")
+        return
+
+    conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
+    sig_emoji = {"SELL_PUTS": "📈", "SELL_CALLS": "📉", "NO_TRADE": "➖"}
+
+    print(f"\n{'='*60}")
+    print(f"LLM Signal Advisor — {date_str}")
+    print(f"{'='*60}")
+
+    for item in decisions:
+        ticker = item["ticker"]
+        price = item["price"]
+        advice = item["advice"]
+
+        price_str = f"${price:.2f}" if isinstance(price, (int, float)) else str(price)
+        sig = advice.signal_decision
+        conf = advice.confidence
+
+        print(f"\n{sig_emoji.get(sig, '📊')} *{ticker}*  |  {price_str}")
+        print(f"   Signal: {sig}  {conf_emoji.get(conf, '')} {conf}")
+
+        if advice.top_3_reasons:
+            print("   Reasons:")
+            for reason in advice.top_3_reasons:
+                print(f"     • {reason}")
+
+        if advice.strike_recommendation:
+            print(f"   Strike: {advice.strike_recommendation}")
+        if advice.expiry_recommendation:
+            print(f"   Expiry: {advice.expiry_recommendation}")
+        if advice.stop_loss:
+            print(f"   Stop:   {advice.stop_loss}")
+        if advice.premium_estimate:
+            print(f"   Premium: {advice.premium_estimate}")
+        if advice.risk_flags:
+            print(f"   Risk:   {' | '.join(advice.risk_flags)}")
+
+        print()
+
+    print(f"{'='*60}\n")
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
 
 
 def parse_args() -> argparse.Namespace:
@@ -204,18 +289,15 @@ def main():
         else:
             results = run_normal(config, db, config.tickers, args.force_refresh)
 
+        # Initialize LLM advisor
         stage1 = Stage1HardFilters()
-        favorable = filter_favorable_tickers(results, stage1)
+        advisor = LLMSignalAdvisor()
 
-        print(f"\n{'='*60}")
-        print(f"Favorable Tickers — {date_str}")
-        print(f"{'='*60}")
-        if favorable:
-            for ticker in favorable:
-                print(f"  ✓ {ticker}")
-        else:
-            print("  No tickers passed Stage 1 filters.")
-        print(f"{'='*60}\n")
+        # Filter Stage 1 candidates + get LLM advice
+        decisions = filter_and_advise(results, stage1, advisor)
+
+        # Print results
+        _print_results(decisions, date_str)
 
         if db:
             db.close()
