@@ -1,9 +1,9 @@
 # LLM Configuration for MarketSentimentAnalyzer Stage 2
-# Provider: Ollama (local) — gemma4:e4b
+# Provider: Ollama (local)
 
 model: gemma4:e4b
 provider: ollama
-base_url: http://localhost:11411
+base_url: http://localhost:11434
 timeout_seconds: 60
 retry_attempts: 1
 json_mode: true
