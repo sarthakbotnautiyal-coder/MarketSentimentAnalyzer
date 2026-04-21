@@ -57,7 +57,7 @@ def _send_telegram_alert(text: str) -> bool:
     data = urllib.parse.urlencode({
         "chat_id": _TELEGRAM_SIGNALS_CHAT_ID,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
     }).encode()
     req = urllib.request.Request(url, data=data, method="POST")
     try:
@@ -91,7 +91,7 @@ def _build_telegram_message(decisions: list, date_str: str) -> str:
     conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
     sig_emoji = {"SELL_PUTS": "📈", "SELL_CALLS": "📉", "NO_TRADE": "➖"}
 
-    header = f"📊 *MSA Signals — {date_str}*\n_{len(decisions)} HIGH confidence signal(s)_\n"
+    header = f"📊 <b>MSA Signals — {date_str}</b>\n<i>{len(decisions)} HIGH confidence signal(s)</i>\n"
     parts = [header]
 
     for item in decisions:
@@ -104,7 +104,7 @@ def _build_telegram_message(decisions: list, date_str: str) -> str:
         conf = advice.confidence
 
         lines = [
-            f"*{ticker}* | {price_str}",
+            f"<b>{ticker}</b> | {price_str}",
             f"{sig_emoji.get(sig, '📊')} {sig}  {conf_emoji.get(conf, '')} {conf}",
         ]
 
@@ -126,7 +126,7 @@ def _build_telegram_message(decisions: list, date_str: str) -> str:
 
     message = "\n".join(parts)
     if len(message) > 4000:
-        message = message[:4000] + "\n\n _(truncated)_"
+        message = message[:4000] + "\n\n <i>(truncated)</i>"
     return message
 
 
@@ -139,7 +139,7 @@ def _maybe_send_telegram(decisions: list, date_str: str) -> None:
     # Only send HIGH confidence decisions
     high_conf = [d for d in decisions if d["advice"].confidence == "HIGH"]
     if not high_conf:
-        logger.info("No HIGH confidence signals — skipping Telegram alert")
+        pass  # silent skip
         return
 
     message = _build_telegram_message(high_conf, date_str)
