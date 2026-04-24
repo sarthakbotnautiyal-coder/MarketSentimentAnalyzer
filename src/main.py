@@ -139,7 +139,7 @@ def _maybe_send_telegram(decisions: list, date_str: str) -> None:
     # Only send HIGH confidence decisions
     high_conf = [d for d in decisions if d["advice"].confidence == "HIGH"]
     if not high_conf:
-        pass  # silent skip
+        _send_telegram_alert(f"📊 <b>MSA Signals — {date_str}</b>\nNo HIGH confidence signals today.")
         return
 
     message = _build_telegram_message(high_conf, date_str)
